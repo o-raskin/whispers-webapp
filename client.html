@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whispers Test Client</title>
+    <style>
+        :root {
+            font-family: Arial, sans-serif;
+            color: #1f2937;
+            background: #e5e7eb;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 24px;
+            background: linear-gradient(180deg, #eef2f7 0%, #e5e7eb 100%);
+        }
+
+        .app {
+            max-width: 1100px;
+            margin: 0 auto;
+            background: #ffffff;
+            border: 1px solid #d1d5db;
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+        }
+
+        .topbar {
+            padding: 20px;
+            border-bottom: 1px solid #e5e7eb;
+            background: #f8fafc;
+        }
+
+        h1 {
+            margin: 0 0 16px;
+            font-size: 24px;
+        }
+
+        .connection-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            align-items: end;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        input, button, textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #9ca3af;
+            border-radius: 10px;
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+            background: #111827;
+            color: #ffffff;
+            border-color: #111827;
+        }
+
+        button.secondary {
+            background: #ffffff;
+            color: #111827;
+        }
+
+        .status {
+            margin: 12px 0 0;
+            font-size: 14px;
+        }
+
+        .chat-layout {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            min-height: 620px;
+        }
+
+        .sidebar {
+            border-right: 1px solid #e5e7eb;
+            background: #f9fafb;
+            padding: 18px;
+        }
+
+        .sidebar h2,
+        .conversation h2,
+        .log-panel h2 {
+            margin: 0 0 12px;
+            font-size: 16px;
+        }
+
+        .chat-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .chat-item {
+            padding: 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 12px;
+            background: #ffffff;
+        }
+
+        .chat-item.active {
+            border-color: #111827;
+            background: #eef2ff;
+        }
+
+        .chat-item-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .presence-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 999px;
+            background: #dc2626;
+            flex: 0 0 auto;
+        }
+
+        .presence-dot.connected {
+            background: #16a34a;
+        }
+
+        .chat-item-preview {
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .sidebar-note {
+            font-size: 13px;
+            color: #6b7280;
+            margin-bottom: 12px;
+        }
+
+        .create-chat {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        .conversation {
+            display: grid;
+            grid-template-rows: auto 1fr auto auto;
+            gap: 16px;
+            padding: 18px;
+            background: #ffffff;
+        }
+
+        .conversation-header {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: center;
+        }
+
+        .conversation-subtitle {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .history {
+            border: 1px solid #d1d5db;
+            border-radius: 14px;
+            background: #f8fafc;
+            padding: 16px;
+            min-height: 280px;
+            display: grid;
+            gap: 12px;
+            align-content: start;
+        }
+
+        .message {
+            max-width: 75%;
+            padding: 10px 12px;
+            border-radius: 14px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+        }
+
+        .message-meta {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 12px;
+            opacity: 0.72;
+        }
+
+        .message.sent {
+            margin-left: auto;
+            background: #111827;
+            color: #ffffff;
+        }
+
+        .message.received {
+            background: #e5e7eb;
+            color: #111827;
+        }
+
+        .message.system {
+            max-width: 100%;
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .composer {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            align-items: end;
+        }
+
+        .log-panel {
+            border-top: 1px solid #e5e7eb;
+            padding: 18px;
+            background: #f8fafc;
+        }
+
+        textarea {
+            min-height: 220px;
+            resize: vertical;
+            background: #111827;
+            color: #f9fafb;
+        }
+
+        @media (max-width: 900px) {
+            .connection-grid,
+            .composer,
+            .chat-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .chat-layout {
+                min-height: 0;
+            }
+
+            .sidebar {
+                border-right: 0;
+                border-bottom: 1px solid #e5e7eb;
+            }
+        }
+    </style>
+</head>
+<body>
+<main class="app">
+    <section class="topbar">
+        <h1>Whispers Test Client</h1>
+        <div class="connection-grid">
+            <div>
+                <label for="serverUrl">Server URL</label>
+                <input id="serverUrl" value="ws://localhost:8080/connect">
+            </div>
+            <div>
+                <label for="userId">Your user ID</label>
+                <input id="userId" placeholder="alice">
+            </div>
+            <div>
+                <button id="connectButton" type="button">Connect</button>
+            </div>
+            <div>
+                <button id="disconnectButton" class="secondary" type="button">Disconnect</button>
+            </div>
+        </div>
+        <p class="status" id="status">Disconnected</p>
+    </section>
+
+    <section class="chat-layout">
+        <aside class="sidebar">
+            <h2>Chats</h2>
+            <p class="sidebar-note">Chats are loaded from the server after connection.</p>
+            <div class="create-chat">
+                <input id="newChatUserId" placeholder="username">
+                <button id="createChatButton" type="button">Create Chat</button>
+            </div>
+            <div class="chat-list" id="chatList">
+                <div class="chat-item">
+                    <div class="chat-item-title">No chats yet</div>
+                    <div class="chat-item-preview">Connect and create a chat with an online user.</div>
+                </div>
+            </div>
+        </aside>
+
+        <section class="conversation">
+            <div class="conversation-header">
+                <div>
+                    <h2>Conversation</h2>
+                    <div class="conversation-subtitle" id="conversationTitle">No chat selected</div>
+                </div>
+            </div>
+
+            <div class="history" id="history">
+                <div class="message system">Conversation history will appear here.</div>
+            </div>
+
+            <div class="composer">
+                <div>
+                    <label for="messageText">Message</label>
+                    <input id="messageText" placeholder="hello there">
+                </div>
+                <div>
+                    <button id="sendButton" type="button">Send</button>
+                </div>
+            </div>
+        </section>
+    </section>
+
+    <section class="log-panel">
+        <h2>Event log</h2>
+        <textarea id="log" readonly></textarea>
+    </section>
+</main>
+
+<script>
+    const serverUrlInput = document.getElementById('serverUrl');
+    const userIdInput = document.getElementById('userId');
+    const newChatUserIdInput = document.getElementById('newChatUserId');
+    const messageTextInput = document.getElementById('messageText');
+    const connectButton = document.getElementById('connectButton');
+    const disconnectButton = document.getElementById('disconnectButton');
+    const sendButton = document.getElementById('sendButton');
+    const createChatButton = document.getElementById('createChatButton');
+    const statusLabel = document.getElementById('status');
+    const logArea = document.getElementById('log');
+    const history = document.getElementById('history');
+    const chatList = document.getElementById('chatList');
+    const conversationTitle = document.getElementById('conversationTitle');
+
+    const PRESENCE_TIMEOUT_MS = 30000;
+
+    let socket = null;
+    let chats = [];
+    let usersByUsername = {};
+    let selectedChatId = null;
+    let pingIntervalId = null;
+
+    function appendLog(line) {
+        const timestamp = new Date().toLocaleTimeString();
+        logArea.value += `[${timestamp}] ${line}\n`;
+        logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    function setStatus(text) {
+        statusLabel.textContent = text;
+    }
+
+    function clearHistory(placeholder) {
+        history.innerHTML = '';
+        const message = document.createElement('div');
+        message.className = 'message system';
+        message.textContent = placeholder;
+        history.appendChild(message);
+    }
+
+    function appendHistory(text, type, timestamp) {
+        if (history.children.length === 1 && history.firstElementChild.classList.contains('system')) {
+            history.innerHTML = '';
+        }
+
+        const message = document.createElement('div');
+        message.className = `message ${type}`;
+        if (timestamp) {
+            const meta = document.createElement('span');
+            meta.className = 'message-meta';
+            meta.textContent = timestamp;
+            message.appendChild(meta);
+        }
+        message.append(text);
+        history.appendChild(message);
+        history.scrollTop = history.scrollHeight;
+    }
+
+    function httpBaseUrl() {
+        const wsUrl = new URL(serverUrlInput.value.trim());
+        const protocol = wsUrl.protocol === 'wss:' ? 'https:' : 'http:';
+        return `${protocol}//${wsUrl.host}`;
+    }
+
+    function renderChatList() {
+        if (chats.length === 0) {
+            chatList.innerHTML = `
+                <div class="chat-item">
+                    <div class="chat-item-title">No chats yet</div>
+                    <div class="chat-item-preview">Create a chat with an online user.</div>
+                </div>
+            `;
+            return;
+        }
+
+        chatList.innerHTML = chats.map((chat) => `
+            <div class="chat-item${chat.chatId === selectedChatId ? ' active' : ''}" data-chat-id="${chat.chatId}">
+                <div class="chat-item-title">
+                    <span class="presence-dot${isUserOnline(chat.username) ? ' connected' : ''}"></span>
+                    <span>${chat.username}</span>
+                </div>
+                <div class="chat-item-preview">${isUserOnline(chat.username) ? 'Connected' : 'Disconnected'} • Last ping: ${formatPresenceTime(findUser(chat.username)?.lastPingTime)}</div>
+            </div>
+        `).join('');
+    }
+
+    function findUser(username) {
+        return usersByUsername[username] || null;
+    }
+
+    function parsePresenceDate(value) {
+        if (!value) {
+            return null;
+        }
+
+        const normalized = typeof value === 'string' && value.endsWith('Z') ? value.slice(0, -1) : value;
+        if (typeof normalized !== 'string') {
+            return null;
+        }
+
+        const [datePart, timePart] = normalized.split('T');
+        if (!datePart || !timePart) {
+            return new Date(normalized);
+        }
+
+        const [year, month, day] = datePart.split('-').map(Number);
+        const [hour, minute, second] = timePart.split(':').map(Number);
+        return new Date(year, month - 1, day, hour, minute, second || 0);
+    }
+
+    function isUserOnline(username) {
+        const user = findUser(username);
+        if (!user) {
+            return false;
+        }
+        if (user.lastPingReceivedAt) {
+            return Date.now() - user.lastPingReceivedAt <= PRESENCE_TIMEOUT_MS;
+        }
+        if (!user.lastPingTime) {
+            return false;
+        }
+        const presenceDate = parsePresenceDate(user.lastPingTime);
+        if (!presenceDate || Number.isNaN(presenceDate.getTime())) {
+            return false;
+        }
+        return Date.now() - presenceDate.getTime() <= PRESENCE_TIMEOUT_MS;
+    }
+
+    function formatPresenceTime(value) {
+        if (!value) {
+            return 'n/a';
+        }
+        const presenceDate = parsePresenceDate(value);
+        if (!presenceDate || Number.isNaN(presenceDate.getTime())) {
+            return value;
+        }
+        return presenceDate.toLocaleString();
+    }
+
+    function updateConversationTitle() {
+        const chat = chats.find((entry) => entry.chatId === selectedChatId);
+        if (!chat) {
+            conversationTitle.textContent = 'No chat selected';
+            return;
+        }
+        const user = findUser(chat.username);
+        const state = isUserOnline(chat.username) ? 'online' : 'offline';
+        conversationTitle.textContent = `Selected chat: ${chat.username} (${state}, last ping: ${formatPresenceTime(user?.lastPingTime)})`;
+    }
+
+    async function loadChats() {
+        const userId = userIdInput.value.trim();
+        const response = await fetch(`${httpBaseUrl()}/chats?userId=${encodeURIComponent(userId)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.error || 'Cannot load chats.');
+        }
+
+        chats = payload;
+        if (selectedChatId && !chats.some((chat) => chat.chatId === selectedChatId)) {
+            selectedChatId = null;
+        }
+        renderChatList();
+        if (!selectedChatId && chats.length > 0) {
+            await selectChat(chats[0].chatId);
+            return;
+        }
+        if (selectedChatId) {
+            updateConversationTitle();
+        } else {
+            conversationTitle.textContent = 'No chat selected';
+            clearHistory('Select or create a chat to see message history.');
+        }
+    }
+
+    async function loadUsers() {
+        const userId = userIdInput.value.trim();
+        const response = await fetch(`${httpBaseUrl()}/users?userId=${encodeURIComponent(userId)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.error || 'Cannot load users.');
+        }
+
+        usersByUsername = {};
+        for (const user of payload) {
+            const existingUser = findUser(user.username);
+            usersByUsername[user.username] = {
+                ...user,
+                lastPingReceivedAt: existingUser?.lastPingReceivedAt || null
+            };
+        }
+        renderChatList();
+        updateConversationTitle();
+    }
+
+    async function loadHistory(chatId) {
+        const userId = userIdInput.value.trim();
+        const response = await fetch(`${httpBaseUrl()}/messages?userId=${encodeURIComponent(userId)}&chatId=${encodeURIComponent(chatId)}`);
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.error || 'Cannot load history.');
+        }
+
+        clearHistory('No messages yet.');
+        for (const message of payload) {
+            const type = message.senderUserId === userId ? 'sent' : 'received';
+            const label = message.senderUserId === userId ? 'You' : message.senderUserId;
+            appendHistory(`${label}: ${message.text}`, type, message.timestamp);
+        }
+    }
+
+    async function selectChat(chatId) {
+        const chat = chats.find((entry) => entry.chatId === chatId);
+        if (!chat) {
+            return;
+        }
+
+        selectedChatId = chatId;
+        updateConversationTitle();
+
+        for (const item of chatList.querySelectorAll('.chat-item')) {
+            item.classList.toggle('active', item.dataset.chatId === chatId);
+        }
+        await loadHistory(chatId);
+    }
+
+    async function createChat() {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            appendLog('Connect first.');
+            return;
+        }
+
+        const currentUserId = userIdInput.value.trim();
+        const targetUserId = newChatUserIdInput.value.trim();
+        if (!targetUserId) {
+            appendLog('New chat username is required.');
+            return;
+        }
+
+        const response = await fetch(`${httpBaseUrl()}/chats?userId=${encodeURIComponent(currentUserId)}&targetUserId=${encodeURIComponent(targetUserId)}`, {
+            method: 'POST'
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+            appendLog(`Create chat failed: ${payload.error || 'unknown error'}`);
+            appendHistory(payload.error || 'Create chat failed.', 'system');
+            return;
+        }
+
+        appendLog(`Chat created: ${payload.chatId}`);
+        newChatUserIdInput.value = '';
+        await loadChats();
+        await loadUsers();
+        await selectChat(payload.chatId);
+    }
+
+    async function sendPresencePing() {
+        const userId = userIdInput.value.trim();
+        if (!userId) {
+            return;
+        }
+        const response = await fetch(`${httpBaseUrl()}/ping?userId=${encodeURIComponent(userId)}`, {
+            method: 'POST'
+        });
+        if (!response.ok) {
+            throw new Error('Cannot send ping.');
+        }
+        renderChatList();
+        updateConversationTitle();
+    }
+
+    function startPingLoop() {
+        stopPingLoop();
+        pingIntervalId = window.setInterval(() => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            sendPresencePing().catch((error) => appendLog(`Ping failed: ${error.message}`));
+        }, 10000);
+    }
+
+    function stopPingLoop() {
+        if (pingIntervalId !== null) {
+            window.clearInterval(pingIntervalId);
+            pingIntervalId = null;
+        }
+    }
+
+    function connect() {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            appendLog('Already connected.');
+            return;
+        }
+
+        const serverUrl = serverUrlInput.value.trim();
+        const userId = userIdInput.value.trim();
+        if (!serverUrl || !userId) {
+            appendLog('Server URL and user ID are required.');
+            return;
+        }
+
+        const url = `${serverUrl}?userId=${encodeURIComponent(userId)}`;
+        socket = new WebSocket(url);
+        setStatus('Connecting...');
+        appendLog(`Connecting to ${url}`);
+
+        socket.onopen = () => {
+            setStatus(`Connected as ${userId}`);
+            appendLog('WebSocket connected.');
+            appendHistory(`Connected as ${userId}.`, 'system');
+            Promise.all([loadChats(), loadUsers(), sendPresencePing()]).catch((error) => {
+                appendLog(`Cannot load initial data: ${error.message}`);
+                appendHistory(`Cannot load initial data: ${error.message}`, 'system');
+            });
+            startPingLoop();
+        };
+
+        socket.onmessage = (event) => {
+            appendLog(`Received: ${event.data}`);
+
+            if (event.data.startsWith('ERROR:') || event.data.startsWith('CONNECTED:')) {
+                appendHistory(event.data, 'system');
+                return;
+            }
+
+            const message = JSON.parse(event.data);
+            if (message.type === 'presence') {
+                usersByUsername[message.username] = {
+                    username: message.username,
+                    lastPingTime: message.lastPingTime,
+                    lastPingReceivedAt: Date.now()
+                };
+                renderChatList();
+                updateConversationTitle();
+                return;
+            }
+
+            const currentUserId = userIdInput.value.trim();
+            const type = message.senderUserId === currentUserId ? 'sent' : 'received';
+            const label = message.senderUserId === currentUserId ? 'You' : message.senderUserId;
+
+            if (message.chatId === selectedChatId) {
+                appendHistory(`${label}: ${message.text}`, type, message.timestamp);
+            }
+
+            if (!chats.some((chat) => chat.chatId === message.chatId)) {
+                loadChats().catch((error) => appendLog(`Cannot refresh chats: ${error.message}`));
+            }
+        };
+
+        socket.onerror = () => {
+            appendLog('WebSocket error.');
+            appendHistory('WebSocket error.', 'system');
+        };
+
+        socket.onclose = () => {
+            setStatus('Disconnected');
+            appendLog('WebSocket closed.');
+            appendHistory('WebSocket closed.', 'system');
+            chats = [];
+            usersByUsername = {};
+            selectedChatId = null;
+            stopPingLoop();
+            renderChatList();
+            socket = null;
+        };
+    }
+
+    function disconnect() {
+        if (!socket) {
+            appendLog('No active connection.');
+            return;
+        }
+        stopPingLoop();
+        socket.close();
+    }
+
+    function sendMessage() {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            appendLog('Connect first.');
+            return;
+        }
+
+        const messageText = messageTextInput.value;
+        if (!selectedChatId || !messageText) {
+            appendLog('Select a chat and enter a message.');
+            return;
+        }
+
+        const payload = JSON.stringify({ chatId: selectedChatId, text: messageText });
+        socket.send(payload);
+        appendLog(`Sent: ${payload}`);
+        messageTextInput.value = '';
+    }
+
+    connectButton.addEventListener('click', connect);
+    disconnectButton.addEventListener('click', disconnect);
+    sendButton.addEventListener('click', sendMessage);
+    createChatButton.addEventListener('click', () => {
+        createChat().catch((error) => {
+            appendLog(`Create chat failed: ${error.message}`);
+            appendHistory(`Create chat failed: ${error.message}`, 'system');
+        });
+    });
+
+    messageTextInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            sendMessage();
+        }
+    });
+
+    chatList.addEventListener('click', (event) => {
+        const item = event.target.closest('.chat-item');
+        if (!item) {
+            return;
+        }
+        selectChat(item.dataset.chatId).catch((error) => {
+            appendLog(`Cannot load history: ${error.message}`);
+            appendHistory(`Cannot load history: ${error.message}`, 'system');
+        });
+    });
+
+    clearHistory('Select or create a chat to see message history.');
+</script>
+</body>
+</html>

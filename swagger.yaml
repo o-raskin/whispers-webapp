@@ -1,0 +1,265 @@
+openapi: 3.0.3
+info:
+  title: Whispers Chat Backend
+  version: 1.0.0
+  description: |
+    Minimal contract for the current chat backend.
+
+    HTTP base URL example: `http://localhost:8080`
+    WebSocket URL example: `ws://localhost:8080/connect?userId=alice`
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+paths:
+  /connect:
+    get:
+      summary: Upgrade connection to WebSocket
+      description: |
+        Connects a user to the backend over WebSocket.
+
+        Query parameter `userId` is required.
+
+        After successful upgrade, the server sends a text frame:
+        `CONNECTED:{userId}`
+
+        Client text frames must send JSON matching `SendMessageCommand`.
+
+        Server text frames may send:
+        - `MessageRecord` as JSON
+        - `PresenceEvent` as JSON
+        - plain text errors starting with `ERROR:`
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '101':
+          description: Switching Protocols, upgraded to WebSocket
+        '409':
+          description: User is already connected
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: User already connected
+
+  /chats:
+    get:
+      summary: Get chats for a user
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: List of chats for the user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ChatSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      summary: Create a chat with another connected user
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: targetUserId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: bob
+      responses:
+        '200':
+          description: Chat created or returned if it already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /messages:
+    get:
+      summary: Get message history for a chat
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: chatId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: alice__bob
+      responses:
+        '200':
+          description: List of messages in the chat
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MessageRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /users:
+    get:
+      summary: Get interlocutors with last known ping timestamps
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Users who have chats with the current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /ping:
+    post:
+      summary: Accept a presence ping
+      description: |
+        Updates the caller's last accepted ping timestamp.
+        The backend also fan-outs a `PresenceEvent` over WebSocket to connected users
+        who have a conversation with this user.
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Ping accepted
+          content:
+            application/json:
+              schema:
+                nullable: true
+                example: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+components:
+  parameters:
+    UserId:
+      name: userId
+      in: query
+      required: true
+      schema:
+        type: string
+      example: alice
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ChatSummary:
+      type: object
+      required:
+        - chatId
+        - username
+      properties:
+        chatId:
+          type: string
+          example: alice__bob
+        username:
+          type: string
+          example: bob
+
+    SendMessageCommand:
+      type: object
+      required:
+        - chatId
+        - text
+      properties:
+        chatId:
+          type: string
+          example: alice__bob
+        text:
+          type: string
+          example: hello there
+
+    MessageRecord:
+      type: object
+      required:
+        - chatId
+        - senderUserId
+        - text
+        - timestamp
+      properties:
+        chatId:
+          type: string
+          example: alice__bob
+        senderUserId:
+          type: string
+          example: alice
+        text:
+          type: string
+          example: hello there
+        timestamp:
+          type: string
+          description: Server-side message timestamp
+          example: '2026-04-10T12:34:56Z'
+
+    User:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+          example: bob
+        lastPingTime:
+          type: string
+          nullable: true
+          description: LocalDateTime formatted as `yyyy-MM-dd'T'HH:mm:ss`
+          example: '2026-04-10T12:34:56'
+
+    PresenceEvent:
+      type: object
+      required:
+        - type
+        - username
+      properties:
+        type:
+          type: string
+          enum: [presence]
+          example: presence
+        username:
+          type: string
+          example: bob
+        lastPingTime:
+          type: string
+          nullable: true
+          description: LocalDateTime formatted as `yyyy-MM-dd'T'HH:mm:ss`
+          example: '2026-04-10T12:34:56'
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          example: Target user is not connected
