@@ -25,6 +25,7 @@ import type {
   SendMessageCommand,
   UserPresence,
 } from '../shared/types/chat'
+import { isUserOnline } from '../shared/utils/presence'
 
 function appendLog(lines: string[], message: string) {
   const timestamp = new Date().toLocaleTimeString([], {
@@ -56,12 +57,16 @@ export function App() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [newChatUserId, setNewChatUserId] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
+  const [isBootstrapping, setIsBootstrapping] = useState(false)
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [eventLog, setEventLog] = useState<string[]>([
     '[09:00:12] Client initialized from swagger contract.',
   ])
 
   const selectedThread = selectedChatId ? threads[selectedChatId] ?? null : null
   const selectedUser = selectedThread ? users[selectedThread.participant] ?? null : null
+  const onlineCount = Object.values(users).filter((user) => isUserOnline(user)).length
+  const unreadCount = chats.reduce((total, chat) => total + (chat.unreadCount ?? 0), 0)
 
   userIdRef.current = userId.trim()
   chatsRef.current = chats
@@ -209,11 +214,26 @@ export function App() {
       return
     }
 
+    setIsHistoryLoading(true)
     loadHistory(selectedChatId, currentUserId).catch((error: Error) => {
       setEventLog((current) => appendLog(current, `Cannot load history: ${error.message}`))
       appendSystemMessage(selectedChatId, `Cannot load history: ${error.message}`)
+    }).finally(() => {
+      setIsHistoryLoading(false)
     })
   }, [selectedChatId, serverUrl, userId])
+
+  useEffect(() => {
+    if (!selectedChatId) {
+      return
+    }
+
+    setChats((current) =>
+      current.map((chat) =>
+        chat.chatId === selectedChatId ? { ...chat, unreadCount: 0 } : chat,
+      ),
+    )
+  }, [selectedChatId])
 
   useEffect(() => {
     if (status !== 'connected' || !userId.trim()) {
@@ -266,6 +286,7 @@ export function App() {
 
     socket.onopen = () => {
       setStatus('connected')
+      setIsBootstrapping(true)
       setEventLog((current) => appendLog(current, `WebSocket connected as ${currentUserId}.`))
 
       Promise.all([refreshChats(currentUserId), refreshUsers(currentUserId)]).catch(
@@ -274,7 +295,9 @@ export function App() {
             appendLog(current, `Cannot load initial data: ${error.message}`),
           )
         },
-      )
+      ).finally(() => {
+        setIsBootstrapping(false)
+      })
     }
 
     socket.onmessage = (event) => {
@@ -357,6 +380,8 @@ export function App() {
 
     socket.onclose = () => {
       setStatus('disconnected')
+      setIsBootstrapping(false)
+      setIsHistoryLoading(false)
       setEventLog((current) => appendLog(current, 'WebSocket closed.'))
       setChats([])
       setUsers({})
@@ -424,38 +449,51 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
-      <ConnectionPanel
-        serverUrl={serverUrl}
-        userId={userId}
-        status={status}
-        onServerUrlChange={setServerUrl}
-        onUserIdChange={setUserId}
-        onConnect={handleConnect}
-        onDisconnect={handleDisconnect}
-      />
+    <div className="app-frame">
+      <div className="ambient ambient-one" aria-hidden="true" />
+      <div className="ambient ambient-two" aria-hidden="true" />
+      <div className="ambient ambient-three" aria-hidden="true" />
 
-      <section className="chat-layout">
-        <ChatSidebar
-          chats={chats}
-          selectedChatId={selectedChatId}
-          users={users}
-          newChatUserId={newChatUserId}
-          onNewChatUserIdChange={setNewChatUserId}
-          onCreateChat={handleCreateChat}
-          onSelectChat={setSelectedChatId}
+      <main className="app-shell">
+        <ConnectionPanel
+          serverUrl={serverUrl}
+          userId={userId}
+          status={status}
+          chatCount={chats.length}
+          onlineCount={onlineCount}
+          unreadCount={unreadCount}
+          onServerUrlChange={setServerUrl}
+          onUserIdChange={setUserId}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
         />
 
-        <ConversationPanel
-          thread={selectedThread}
-          user={selectedUser}
-          messageDraft={messageDraft}
-          onMessageDraftChange={setMessageDraft}
-          onSendMessage={handleSendMessage}
-        />
-      </section>
+        <section className="chat-layout">
+          <ChatSidebar
+            chats={chats}
+            selectedChatId={selectedChatId}
+            users={users}
+            status={status}
+            newChatUserId={newChatUserId}
+            onNewChatUserIdChange={setNewChatUserId}
+            onCreateChat={handleCreateChat}
+            onSelectChat={setSelectedChatId}
+          />
 
-      <EventLogPanel lines={eventLog} />
-    </main>
+          <ConversationPanel
+            thread={selectedThread}
+            user={selectedUser}
+            currentUserId={userId.trim()}
+            connectionStatus={status}
+            isHistoryLoading={isHistoryLoading || isBootstrapping}
+            messageDraft={messageDraft}
+            onMessageDraftChange={setMessageDraft}
+            onSendMessage={handleSendMessage}
+          />
+        </section>
+
+        <EventLogPanel lines={eventLog.slice(0, 18)} />
+      </main>
+    </div>
   )
 }
