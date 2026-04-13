@@ -50,6 +50,7 @@ const EMOJI_CHOICES = [
 
 interface ConversationPanelProps {
   thread: ChatThread | null
+  pendingParticipantName?: string | null
   user: UserPresence | null
   currentUserId: string
   isMobileLayout: boolean
@@ -65,6 +66,7 @@ interface ConversationPanelProps {
 
 export function ConversationPanel({
   thread,
+  pendingParticipantName = null,
   user,
   currentUserId,
   isMobileLayout,
@@ -171,11 +173,20 @@ export function ConversationPanel({
   const closeEmojiPicker = () => {
     setIsEmojiPickerOpen(false)
   }
+  const pendingParticipant = pendingParticipantName?.trim() || null
+  const isMobilePendingThread = isMobileLayout && !thread && isHistoryLoading
+  const conversationTitle = thread
+    ? thread.participant
+    : isMobilePendingThread
+      ? pendingParticipant ?? 'Loading conversation'
+      : 'Welcome to Whispers'
 
   const subtitle = thread
     ? isRecipientOnline
       ? 'Online'
       : `Last seen: ${formatPresenceLabel(user?.lastPingTime ?? null)}`
+    : isMobilePendingThread
+      ? 'Loading messages...'
     : 'No chat selected'
   const visibleHistoryFadeState =
     thread && !isHistoryLoading
@@ -368,10 +379,10 @@ export function ConversationPanel({
             whileHover={{ scale: 1.03, rotate: -4 }}
             transition={springTransition}
           >
-            {thread ? getInitials(thread.participant) : 'W'}
+            {thread ? getInitials(thread.participant) : pendingParticipant ? getInitials(pendingParticipant) : 'W'}
           </motion.div>
           <div className="conversation-copy">
-            <h2>{thread ? thread.participant : 'Welcome to Whispers'}</h2>
+            <h2>{conversationTitle}</h2>
             <div className="conversation-subtitle">
               {isRemoteTyping ? (
                 <span className="conversation-typing-status" aria-live="polite">
@@ -503,6 +514,20 @@ export function ConversationPanel({
                       ref={handleHistoryBottomAnchorRef}
                       aria-hidden="true"
                     />
+                  </motion.div>
+                ) : isMobileLayout ? (
+                  <motion.div
+                    key="history-mobile-idle"
+                    className="history-loading"
+                    aria-label="Loading conversation"
+                    initial={false}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    transition={panelTransition}
+                  >
+                    <div className="message-skeleton received" />
+                    <div className="message-skeleton sent" />
+                    <div className="message-skeleton received short" />
                   </motion.div>
                 ) : (
                   <motion.div

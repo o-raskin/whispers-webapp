@@ -78,6 +78,9 @@ export function App() {
   ])
 
   const selectedThread = selectedChatId ? threads[selectedChatId] ?? null : null
+  const selectedChatSummary = selectedChatId
+    ? chats.find((chat) => chat.chatId === selectedChatId) ?? null
+    : null
   const selectedUser = selectedThread ? users[selectedThread.participant] ?? null : null
   const remoteTypingLabel = selectedChatId ? remoteTypingByChatId[selectedChatId] ?? null : null
   const showWelcome = status !== 'connected'
@@ -984,6 +987,7 @@ export function App() {
                   <motion.div className="workspace-main" variants={shellStagger}>
                     <ConversationPanel
                       thread={selectedThread}
+                      pendingParticipantName={selectedThread?.participant ?? selectedChatSummary?.username ?? null}
                       user={selectedUser}
                       currentUserId={userId.trim()}
                       isMobileLayout={isMobileLayout}
@@ -1019,6 +1023,7 @@ export function App() {
                 <motion.div className="workspace-main" variants={shellStagger}>
                   <ConversationPanel
                     thread={selectedThread}
+                    pendingParticipantName={selectedThread?.participant ?? selectedChatSummary?.username ?? null}
                     user={selectedUser}
                     currentUserId={userId.trim()}
                     isMobileLayout={isMobileLayout}

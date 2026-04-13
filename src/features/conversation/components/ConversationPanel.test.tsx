@@ -56,6 +56,34 @@ describe('ConversationPanel', () => {
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
   })
 
+  test('does not render the desktop welcome copy during mobile loading', () => {
+    render(
+      <ConversationPanel
+        thread={null}
+        pendingParticipantName="bob"
+        user={null}
+        currentUserId="alice"
+        isMobileLayout={true}
+        connectionStatus="connected"
+        isHistoryLoading={true}
+        isDrafting={false}
+        remoteTypingLabel={null}
+        messageDraft=""
+        onMessageDraftChange={vi.fn()}
+        onBackToInbox={vi.fn()}
+        onSendMessage={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'bob' })).toBeInTheDocument()
+    expect(screen.getByText('Loading messages...')).toBeInTheDocument()
+    expect(screen.getByLabelText('Loading conversation')).toBeInTheDocument()
+    expect(screen.queryByText('Your conversation space is ready.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/Connect to the backend, pick a conversation/i),
+    ).not.toBeInTheDocument()
+  })
+
   test('renders thread details, typing state, and message meta', async () => {
     const userEventApi = userEvent.setup()
     const onBackToInbox = vi.fn()
