@@ -962,11 +962,12 @@ export function App() {
                     selectedChatId={selectedChatId}
                     users={users}
                     status={status}
-                    newChatUserId={newChatUserId}
-                    onNewChatUserIdChange={setNewChatUserId}
-                    onCreateChat={handleCreateChat}
-                    onSelectChat={handleSelectChat}
-                  />
+	                  newChatUserId={newChatUserId}
+	                  onNewChatUserIdChange={setNewChatUserId}
+	                  onCreateChat={handleCreateChat}
+	                  onSelectChat={handleSelectChat}
+	                  onDisconnect={handleDisconnect}
+	                />
                 </motion.div>
 
                 <motion.div
@@ -1008,11 +1009,12 @@ export function App() {
                   selectedChatId={selectedChatId}
                   users={users}
                   status={status}
-                  newChatUserId={newChatUserId}
-                  onNewChatUserIdChange={setNewChatUserId}
-                  onCreateChat={handleCreateChat}
-                  onSelectChat={handleSelectChat}
-                />
+	                  newChatUserId={newChatUserId}
+	                  onNewChatUserIdChange={setNewChatUserId}
+	                  onCreateChat={handleCreateChat}
+	                  onSelectChat={handleSelectChat}
+	                  onDisconnect={handleDisconnect}
+	                />
 
                 <motion.div className="workspace-main" variants={shellStagger}>
                   <ConversationPanel

@@ -177,13 +177,13 @@ export function ConversationPanel({
       ? 'Online'
       : `Last seen: ${formatPresenceLabel(user?.lastPingTime ?? null)}`
     : 'No chat selected'
-
-  useEffect(() => {
-    setHistoryFadeState({
-      showTopFade: false,
-      showBottomFade: false,
-    })
-  }, [thread?.chatId, isHistoryLoading])
+  const visibleHistoryFadeState =
+    thread && !isHistoryLoading
+      ? historyFadeState
+      : {
+          showTopFade: false,
+          showBottomFade: false,
+        }
 
   useLayoutEffect(() => {
     const currentChatId = thread?.chatId ?? null
@@ -398,15 +398,15 @@ export function ConversationPanel({
       <motion.div className="history-shell" variants={itemReveal} layout>
         <div className="history-viewport">
           <div
-            className={`history-edge-fade top ${historyFadeState.showTopFade ? 'visible' : ''}`}
+            className={`history-edge-fade top ${visibleHistoryFadeState.showTopFade ? 'visible' : ''}`}
             aria-hidden="true"
           />
           <div
-            className={`history-edge-fade bottom ${historyFadeState.showBottomFade ? 'visible' : ''}`}
+            className={`history-edge-fade bottom ${visibleHistoryFadeState.showBottomFade ? 'visible' : ''}`}
             aria-hidden="true"
           />
           <AnimatePresence>
-            {thread && !isHistoryLoading && isHistoryAnchored && historyFadeState.showBottomFade ? (
+            {thread && !isHistoryLoading && isHistoryAnchored && visibleHistoryFadeState.showBottomFade ? (
               <motion.button
                 key="history-scroll-button"
                 className="history-scroll-button"

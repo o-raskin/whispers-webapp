@@ -15,11 +15,15 @@ describe('ChatSidebar', () => {
         onNewChatUserIdChange={vi.fn()}
         onCreateChat={vi.fn()}
         onSelectChat={vi.fn()}
+        onDisconnect={vi.fn()}
       />,
     )
 
     expect(screen.getByText('Waiting for connection')).toBeInTheDocument()
     expect(screen.getByText('Guest')).toBeInTheDocument()
+    expect(document.querySelector('.sidebar-user-divider')).toBeInTheDocument()
+    expect(document.querySelector('.sidebar-user-action')).toBeInTheDocument()
+    expect(screen.queryByText('Menu')).not.toBeInTheDocument()
   })
 
   test('shows chat list edge fades only when the list can scroll', async () => {
@@ -41,6 +45,7 @@ describe('ChatSidebar', () => {
         onNewChatUserIdChange={vi.fn()}
         onCreateChat={vi.fn()}
         onSelectChat={vi.fn()}
+        onDisconnect={vi.fn()}
       />,
     )
 
@@ -87,6 +92,7 @@ describe('ChatSidebar', () => {
     const onNewChatUserIdChange = vi.fn()
     const onCreateChat = vi.fn()
     const onSelectChat = vi.fn()
+    const onDisconnect = vi.fn()
 
     render(
       <ChatSidebar
@@ -113,10 +119,14 @@ describe('ChatSidebar', () => {
         onNewChatUserIdChange={onNewChatUserIdChange}
         onCreateChat={onCreateChat}
         onSelectChat={onSelectChat}
+        onDisconnect={onDisconnect}
       />,
     )
 
     await user.click(screen.getByRole('button', { name: 'About conversations' }))
+    await user.click(screen.getByRole('button', { name: 'Open account menu' }))
+    expect(screen.getByRole('menu', { name: 'Account menu' })).toBeInTheDocument()
+    await user.click(screen.getByRole('menuitem', { name: 'Disconnect' }))
     fireEvent.change(screen.getByLabelText('Search user to start a new chat'), {
       target: { value: 'carol' },
     })
@@ -128,6 +138,8 @@ describe('ChatSidebar', () => {
     ).toBeInTheDocument()
     expect(onNewChatUserIdChange).toHaveBeenLastCalledWith('carol')
     expect(onCreateChat).toHaveBeenCalledTimes(1)
+    expect(onDisconnect).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menu', { name: 'Account menu' })).not.toBeInTheDocument()
     expect(onSelectChat).toHaveBeenCalledWith('chat-1')
     expect(screen.getByText('Latest note')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
