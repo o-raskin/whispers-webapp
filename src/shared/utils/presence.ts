@@ -1,6 +1,8 @@
 import { PRESENCE_TIMEOUT_MS } from '../config/backend'
 import type { UserPresence } from '../types/chat'
 
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
+
 export function parsePresenceDate(value: string | null): Date | null {
   if (!value) {
     return null
@@ -41,7 +43,13 @@ export function formatPresenceLabel(value: string | null): string {
     return value ?? 'n/a'
   }
 
-  return parsed.toLocaleString()
+  const day = String(parsed.getDate()).padStart(2, '0')
+  const month = String(parsed.getMonth() + 1).padStart(2, '0')
+  const year = parsed.getFullYear()
+  const hours = String(parsed.getHours()).padStart(2, '0')
+  const minutes = String(parsed.getMinutes()).padStart(2, '0')
+
+  return `${day}.${month}.${year} ${hours}:${minutes}`
 }
 
 export function formatTimestamp(value: string): string {
@@ -55,4 +63,31 @@ export function formatTimestamp(value: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+export function formatChatListTimestamp(value: string | null | undefined): string {
+  if (!value) {
+    return ''
+  }
+
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.getTime())) {
+    return ''
+  }
+
+  const now = new Date()
+  const isToday =
+    parsed.getFullYear() === now.getFullYear() &&
+    parsed.getMonth() === now.getMonth() &&
+    parsed.getDate() === now.getDate()
+
+  if (isToday) {
+    return parsed.toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }
+
+  return WEEKDAY_LABELS[parsed.getDay()]
 }

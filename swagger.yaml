@@ -6,14 +6,14 @@ info:
     Minimal contract for the current chat backend.
 
     HTTP base URL example: `http://localhost:8080`
-    WebSocket URL example: `ws://localhost:8080/connect?userId=alice`
+    WebSocket URL example: `ws://192.168.0.10:8080/ws/user?userId=alice`
 
 servers:
   - url: http://localhost:8080
     description: Local development server
 
 paths:
-  /connect:
+  /ws/user:
     get:
       summary: Upgrade connection to WebSocket
       description: |
@@ -24,11 +24,16 @@ paths:
         After successful upgrade, the server sends a text frame:
         `CONNECTED:{userId}`
 
-        Client text frames must send JSON matching `SendMessageCommand`.
+        Client text frames may send:
+        - chat message JSON matching `SendMessageCommand`
+        - presence ping JSON: `{"type":"PRESENCE"}`
+        - typing start JSON: `{"type":"TYPING_START","chatId":"alice__bob"}`
+        - typing stop JSON: `{"type":"TYPING_END","chatId":"alice__bob"}`
 
         Server text frames may send:
         - `MessageRecord` as JSON
         - `PresenceEvent` as JSON
+        - `TypingEvent` as JSON
         - plain text errors starting with `ERROR:`
       parameters:
         - $ref: '#/components/parameters/UserId'
@@ -123,26 +128,6 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /ping:
-    post:
-      summary: Accept a presence ping
-      description: |
-        Updates the caller's last accepted ping timestamp.
-        The backend also fan-outs a `PresenceEvent` over WebSocket to connected users
-        who have a conversation with this user.
-      parameters:
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: Ping accepted
-          content:
-            application/json:
-              schema:
-                nullable: true
-                example: null
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
 components:
   parameters:
     UserId:
@@ -190,15 +175,44 @@ components:
     SendMessageCommand:
       type: object
       required:
+        - type
         - chatId
         - text
       properties:
+        type:
+          type: string
+          enum: [MESSAGE]
+          example: MESSAGE
         chatId:
           type: string
           example: alice__bob
         text:
           type: string
           example: hello there
+
+    PresenceCommand:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [PRESENCE]
+          example: PRESENCE
+
+    TypingCommand:
+      type: object
+      required:
+        - type
+        - chatId
+      properties:
+        type:
+          type: string
+          enum: [TYPING_START, TYPING_END]
+          example: TYPING_START
+        chatId:
+          type: string
+          example: alice__bob
 
     MessageRecord:
       type: object
@@ -244,8 +258,8 @@ components:
       properties:
         type:
           type: string
-          enum: [presence]
-          example: presence
+          enum: [presence, PRESENCE]
+          example: PRESENCE
         username:
           type: string
           example: bob
@@ -254,6 +268,25 @@ components:
           nullable: true
           description: LocalDateTime formatted as `yyyy-MM-dd'T'HH:mm:ss`
           example: '2026-04-10T12:34:56'
+
+    TypingEvent:
+      type: object
+      required:
+        - type
+        - chatId
+      properties:
+        type:
+          type: string
+          enum: [typing:start, typing:stop, TYPING_START, TYPING_END]
+          example: TYPING_START
+        chatId:
+          type: string
+          example: alice__bob
+        username:
+          type: string
+          nullable: true
+          description: Optional origin username when the backend includes it
+          example: bob
 
     ErrorResponse:
       type: object

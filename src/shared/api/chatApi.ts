@@ -1,8 +1,9 @@
 import type {
-  ChatMessage,
   ChatSummary,
   ErrorResponse,
+  MessageRecord,
   UserPresence,
+  WebSocketOutgoingCommand,
 } from '../types/chat'
 
 function getHttpBaseUrl(serverUrl: string): string {
@@ -36,14 +37,29 @@ async function parseJsonResponse<T>(response: Response, fallbackMessage: string)
   return payload as T
 }
 
+function buildJsonHeaders() {
+  return {
+    Accept: 'application/json',
+  }
+}
+
 export function buildWebSocketUrl(serverUrl: string, userId: string): string {
   const url = new URL(serverUrl)
   url.searchParams.set('userId', userId)
   return url.toString()
 }
 
+export function sendWebSocketCommand(
+  socket: WebSocket,
+  payload: WebSocketOutgoingCommand,
+): void {
+  socket.send(JSON.stringify(payload))
+}
+
 export async function fetchChats(serverUrl: string, userId: string): Promise<ChatSummary[]> {
-  const response = await fetch(buildUrl(serverUrl, '/chats', { userId }))
+  const response = await fetch(buildUrl(serverUrl, '/chats', { userId }), {
+    headers: buildJsonHeaders(),
+  })
   return parseJsonResponse<ChatSummary[]>(response, 'Cannot load chats.')
 }
 
@@ -59,6 +75,7 @@ export async function createChat(
     }),
     {
       method: 'POST',
+      headers: buildJsonHeaders(),
     },
   )
 
@@ -69,44 +86,23 @@ export async function fetchMessages(
   serverUrl: string,
   userId: string,
   chatId: string,
-): Promise<ChatMessage[]> {
+): Promise<MessageRecord[]> {
   const response = await fetch(
     buildUrl(serverUrl, '/messages', {
       userId,
       chatId,
     }),
+    {
+      headers: buildJsonHeaders(),
+    },
   )
 
-  const messages = await parseJsonResponse<
-    Array<{
-      chatId: string
-      senderUserId: string
-      text: string
-      timestamp: string
-    }>
-  >(response, 'Cannot load history.')
-
-  return messages.map((message) => ({
-    id: `${message.chatId}-${message.senderUserId}-${message.timestamp}-${message.text}`,
-    chatId: message.chatId,
-    senderUserId: message.senderUserId,
-    text: message.text,
-    timestamp: message.timestamp,
-    direction: 'received',
-  }))
+  return parseJsonResponse<MessageRecord[]>(response, 'Cannot load history.')
 }
 
 export async function fetchUsers(serverUrl: string, userId: string): Promise<UserPresence[]> {
-  const response = await fetch(buildUrl(serverUrl, '/users', { userId }))
-  return parseJsonResponse<UserPresence[]>(response, 'Cannot load users.')
-}
-
-export async function sendPresencePing(serverUrl: string, userId: string): Promise<void> {
-  const response = await fetch(buildUrl(serverUrl, '/ping', { userId }), {
-    method: 'POST',
+  const response = await fetch(buildUrl(serverUrl, '/users', { userId }), {
+    headers: buildJsonHeaders(),
   })
-
-  if (!response.ok) {
-    throw new Error('Cannot send ping.')
-  }
+  return parseJsonResponse<UserPresence[]>(response, 'Cannot load users.')
 }
