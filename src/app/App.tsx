@@ -17,13 +17,17 @@ import {
 } from '../shared/api/chatApi'
 import {
   DEFAULT_WS_URL,
+  DEFAULT_WEBRTC_ICE_SERVERS,
   PRESENCE_PING_INTERVAL_MS,
 } from '../shared/config/backend'
 import type {
+  ActiveCallState,
+  CallSignalPayload,
   ChatSummary,
   ChatThread,
   ChatMessage,
   ConnectionStatus,
+  MessageRecord,
   PingCommand,
   SendMessageCommand,
   TypingCommand,
@@ -31,6 +35,11 @@ import type {
   WebSocketIncomingEvent,
 } from '../shared/types/chat'
 import { panelTransition, shellStagger } from '../shared/motion/presets'
+import {
+  buildCallSignalText,
+  isCallSignalText,
+  parseCallSignalText,
+} from '../shared/utils/callSignals'
 import {
   appendLog,
   countUnreadMessages,
@@ -45,6 +54,18 @@ import {
 const TYPING_REFRESH_INTERVAL_MS = 4000
 const MOBILE_LAYOUT_MEDIA_QUERY = '(max-width: 760px)'
 
+function filterVisibleMessages(messages: MessageRecord[]) {
+  return messages.filter((message) => !isCallSignalText(message.text))
+}
+
+function createCallId() {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+
+  return `call-${Date.now()}`
+}
+
 export function App() {
   const socketRef = useRef<WebSocket | null>(null)
   const pingTimerRef = useRef<number | null>(null)
@@ -53,7 +74,15 @@ export function App() {
   const userIdRef = useRef('')
   const chatsRef = useRef<ChatSummary[]>([])
   const selectedChatIdRef = useRef<string | null>(null)
+  const threadsRef = useRef<Record<string, ChatThread>>({})
   const readMarkersRef = useRef<Record<string, string>>({})
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
+  const localStreamRef = useRef<MediaStream | null>(null)
+  const remoteStreamRef = useRef<MediaStream | null>(null)
+  const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null)
+  const queuedIceCandidatesRef = useRef<RTCIceCandidateInit[]>([])
+  const remoteDescriptionReadyRef = useRef(false)
+  const activeCallStateRef = useRef<ActiveCallState | null>(null)
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_WS_URL)
   const [userId, setUserId] = useState('')
@@ -73,6 +102,9 @@ export function App() {
   )
   const [remoteTypingByChatId, setRemoteTypingByChatId] = useState<Record<string, string>>({})
   const [readMarkers, setReadMarkers] = useState<Record<string, string>>({})
+  const [activeCallState, setActiveCallState] = useState<ActiveCallState | null>(null)
+  const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null)
+  const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null)
   const [eventLog, setEventLog] = useState<string[]>([
     '[09:00:12] Client initialized from swagger contract.',
   ])
@@ -86,11 +118,18 @@ export function App() {
   const showWelcome = status !== 'connected'
   const isDrafting = Boolean(messageDraft.trim())
   const isMobileChatOpen = isMobileLayout && Boolean(selectedChatId)
+  const selectedCallState =
+    activeCallState && activeCallState.chatId === selectedChatId
+      ? activeCallState
+      : null
+  const selectedCallPhase = selectedCallState?.phase ?? 'idle'
 
   userIdRef.current = userId.trim()
   chatsRef.current = chats
   selectedChatIdRef.current = selectedChatId
+  threadsRef.current = threads
   readMarkersRef.current = readMarkers
+  activeCallStateRef.current = activeCallState
 
   const clearTypingRefreshTimer = useCallback(() => {
     if (typingTimerRef.current !== null) {
@@ -182,6 +221,354 @@ export function App() {
     })
   }, [])
 
+  const sendCallSignal = useCallback((
+    payload: CallSignalPayload,
+    options?: { log?: boolean },
+  ): boolean => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+      return false
+    }
+
+    const command: SendMessageCommand = {
+      type: 'MESSAGE',
+      chatId: payload.chatId,
+      text: buildCallSignalText(payload),
+    }
+
+    sendWebSocketCommand(socketRef.current, command)
+
+    if (options?.log ?? true) {
+      setEventLog((current) =>
+        appendLog(
+          current,
+          `Sent call signal: ${payload.kind} (${payload.chatId}/${payload.callId})`,
+        ),
+      )
+    }
+
+    return true
+  }, [])
+
+  const resetCallSession = useCallback(() => {
+    const peerConnection = peerConnectionRef.current
+
+    if (peerConnection) {
+      peerConnection.onicecandidate = null
+      peerConnection.ontrack = null
+      peerConnection.onconnectionstatechange = null
+      peerConnection.close()
+      peerConnectionRef.current = null
+    }
+
+    localStreamRef.current?.getTracks().forEach((track) => track.stop())
+    remoteStreamRef.current?.getTracks().forEach((track) => track.stop())
+
+    localStreamRef.current = null
+    remoteStreamRef.current = null
+    pendingOfferRef.current = null
+    queuedIceCandidatesRef.current = []
+    remoteDescriptionReadyRef.current = false
+
+    setLocalCallStream(null)
+    setRemoteCallStream(null)
+    setActiveCallState(null)
+  }, [])
+
+  const requestLocalAudioStream = useCallback(async () => {
+    if (localStreamRef.current) {
+      return localStreamRef.current
+    }
+
+    if (
+      typeof navigator === 'undefined' ||
+      !navigator.mediaDevices ||
+      typeof navigator.mediaDevices.getUserMedia !== 'function'
+    ) {
+      throw new Error('Audio calling is not supported in this browser.')
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    localStreamRef.current = stream
+    setLocalCallStream(stream)
+    return stream
+  }, [])
+
+  const attachLocalAudioTracks = useCallback((peerConnection: RTCPeerConnection, stream: MediaStream) => {
+    const senderTrackIds = new Set(
+      peerConnection
+        .getSenders()
+        .map((sender) => sender.track?.id)
+        .filter((trackId): trackId is string => Boolean(trackId)),
+    )
+
+    for (const track of stream.getTracks()) {
+      if (!senderTrackIds.has(track.id)) {
+        peerConnection.addTrack(track, stream)
+      }
+    }
+  }, [])
+
+  const flushQueuedIceCandidates = useCallback(async () => {
+    const peerConnection = peerConnectionRef.current
+
+    if (!peerConnection || queuedIceCandidatesRef.current.length === 0) {
+      return
+    }
+
+    const queuedCandidates = [...queuedIceCandidatesRef.current]
+    queuedIceCandidatesRef.current = []
+
+    await Promise.all(
+      queuedCandidates.map(async (candidate) => {
+        try {
+          await peerConnection.addIceCandidate(candidate)
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'Cannot apply remote ICE candidate.'
+          setEventLog((current) => appendLog(current, message))
+        }
+      }),
+    )
+  }, [])
+
+  const createPeerConnection = useCallback((
+    chatId: string,
+    participant: string,
+    callId: string,
+  ) => {
+    if (typeof RTCPeerConnection === 'undefined') {
+      throw new Error('WebRTC audio calling is not supported in this browser.')
+    }
+
+    if (peerConnectionRef.current) {
+      return peerConnectionRef.current
+    }
+
+    const peerConnection = new RTCPeerConnection({
+      iceServers: DEFAULT_WEBRTC_ICE_SERVERS,
+    })
+
+    remoteDescriptionReadyRef.current = false
+    queuedIceCandidatesRef.current = []
+    remoteStreamRef.current = new MediaStream()
+    setRemoteCallStream(remoteStreamRef.current)
+
+    peerConnection.onicecandidate = (event) => {
+      if (!event.candidate) {
+        return
+      }
+
+      void sendCallSignal(
+        {
+          version: 1,
+          kind: 'ice-candidate',
+          chatId,
+          callId,
+          candidate: event.candidate.toJSON(),
+        },
+        { log: false },
+      )
+    }
+
+    peerConnection.ontrack = (event) => {
+      if (event.streams[0]) {
+        remoteStreamRef.current = event.streams[0]
+        setRemoteCallStream(event.streams[0])
+      } else if (remoteStreamRef.current) {
+        remoteStreamRef.current.addTrack(event.track)
+        setRemoteCallStream(remoteStreamRef.current)
+      }
+
+      setActiveCallState((current) =>
+        current && current.callId === callId
+          ? { ...current, phase: 'active' }
+          : current,
+      )
+    }
+
+    peerConnection.onconnectionstatechange = () => {
+      const { connectionState } = peerConnection
+
+      if (connectionState === 'connected') {
+        setActiveCallState((current) =>
+          current && current.callId === callId
+            ? { ...current, phase: 'active' }
+            : current,
+        )
+        return
+      }
+
+      if (
+        connectionState === 'disconnected' ||
+        connectionState === 'failed' ||
+        connectionState === 'closed'
+      ) {
+        if (activeCallStateRef.current?.callId === callId) {
+          setEventLog((current) =>
+            appendLog(current, `Call with ${participant} ended (${connectionState}).`),
+          )
+          resetCallSession()
+        }
+      }
+    }
+
+    peerConnectionRef.current = peerConnection
+    return peerConnection
+  }, [resetCallSession, sendCallSignal])
+
+  const endActiveCall = useCallback((options?: { notifyRemote?: boolean }) => {
+    const activeCall = activeCallStateRef.current
+
+    if (activeCall && options?.notifyRemote) {
+      void sendCallSignal(
+        {
+          version: 1,
+          kind: 'end',
+          chatId: activeCall.chatId,
+          callId: activeCall.callId,
+        },
+        { log: false },
+      )
+    }
+
+    resetCallSession()
+  }, [resetCallSession, sendCallSignal])
+
+  const rejectIncomingCall = useCallback((reason = 'declined') => {
+    const activeCall = activeCallStateRef.current
+
+    if (!activeCall || activeCall.phase !== 'incoming') {
+      return
+    }
+
+    void sendCallSignal(
+      {
+        version: 1,
+        kind: 'reject',
+        chatId: activeCall.chatId,
+        callId: activeCall.callId,
+        reason,
+      },
+      { log: false },
+    )
+
+    resetCallSession()
+  }, [resetCallSession, sendCallSignal])
+
+  const handleStartCall = useCallback(async () => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+      setEventLog((current) => appendLog(current, 'Connect first.'))
+      return
+    }
+
+    if (!selectedThread) {
+      setEventLog((current) => appendLog(current, 'Select a chat before starting a call.'))
+      return
+    }
+
+    if (activeCallStateRef.current) {
+      return
+    }
+
+    const callId = createCallId()
+
+    try {
+      const stream = await requestLocalAudioStream()
+      const peerConnection = createPeerConnection(
+        selectedThread.chatId,
+        selectedThread.participant,
+        callId,
+      )
+
+      attachLocalAudioTracks(peerConnection, stream)
+
+      setActiveCallState({
+        chatId: selectedThread.chatId,
+        callId,
+        participant: selectedThread.participant,
+        direction: 'outgoing',
+        phase: 'outgoing',
+      })
+
+      const offer = await peerConnection.createOffer({
+        offerToReceiveAudio: true,
+      })
+
+      await peerConnection.setLocalDescription(offer)
+
+      void sendCallSignal({
+        version: 1,
+        kind: 'offer',
+        chatId: selectedThread.chatId,
+        callId,
+        sdp: offer.sdp ?? '',
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Cannot start audio call right now.'
+      setEventLog((current) => appendLog(current, message))
+      resetCallSession()
+    }
+  }, [
+    attachLocalAudioTracks,
+    createPeerConnection,
+    requestLocalAudioStream,
+    resetCallSession,
+    selectedThread,
+    sendCallSignal,
+  ])
+
+  const handleAcceptCall = useCallback(async () => {
+    const activeCall = activeCallStateRef.current
+
+    if (!activeCall || activeCall.phase !== 'incoming' || !pendingOfferRef.current) {
+      return
+    }
+
+    try {
+      const stream = await requestLocalAudioStream()
+      const peerConnection = createPeerConnection(
+        activeCall.chatId,
+        activeCall.participant,
+        activeCall.callId,
+      )
+
+      attachLocalAudioTracks(peerConnection, stream)
+      await peerConnection.setRemoteDescription(pendingOfferRef.current)
+      remoteDescriptionReadyRef.current = true
+      await flushQueuedIceCandidates()
+
+      const answer = await peerConnection.createAnswer()
+      await peerConnection.setLocalDescription(answer)
+      pendingOfferRef.current = null
+
+      setActiveCallState({
+        ...activeCall,
+        phase: 'connecting',
+      })
+
+      void sendCallSignal({
+        version: 1,
+        kind: 'answer',
+        chatId: activeCall.chatId,
+        callId: activeCall.callId,
+        sdp: answer.sdp ?? '',
+      })
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Cannot accept audio call right now.'
+      setEventLog((current) => appendLog(current, message))
+      rejectIncomingCall('media-unavailable')
+    }
+  }, [
+    attachLocalAudioTracks,
+    createPeerConnection,
+    flushQueuedIceCandidates,
+    rejectIncomingCall,
+    requestLocalAudioStream,
+    sendCallSignal,
+  ])
+
   const upsertMessages = useCallback((
     chatId: string,
     participant: string,
@@ -269,7 +656,9 @@ export function App() {
 
     const historyResults = await Promise.allSettled(
       chatSummaries.map(async (chat) => {
-        const payload = await fetchMessages(serverUrl, currentUserId, chat.chatId)
+        const payload = filterVisibleMessages(
+          await fetchMessages(serverUrl, currentUserId, chat.chatId),
+        )
         const latestMessage = payload.at(-1)
         const readMarker = readMarkersRef.current[chat.chatId]
 
@@ -359,10 +748,14 @@ export function App() {
     setChats((current) =>
       payload.map((chat) => {
         const existing = current.find((item) => item.chatId === chat.chatId)
+        const hasHiddenPreview = Boolean(chat.preview && isCallSignalText(chat.preview))
+
         return {
           ...chat,
-          preview: chat.preview ?? existing?.preview,
-          lastMessageTimestamp: chat.lastMessageTimestamp ?? existing?.lastMessageTimestamp,
+          preview: hasHiddenPreview ? existing?.preview : chat.preview ?? existing?.preview,
+          lastMessageTimestamp: hasHiddenPreview
+            ? existing?.lastMessageTimestamp
+            : chat.lastMessageTimestamp ?? existing?.lastMessageTimestamp,
           unreadCount: existing?.unreadCount ?? 0,
         }
       }),
@@ -385,7 +778,9 @@ export function App() {
       return
     }
 
-    const payload = await fetchMessages(serverUrl, currentUserId, chatId)
+    const payload = filterVisibleMessages(
+      await fetchMessages(serverUrl, currentUserId, chatId),
+    )
     const normalized = payload.map((message) => toChatMessage(message, currentUserId))
     const latestMessage = normalized.at(-1)
 
@@ -397,6 +792,135 @@ export function App() {
       markChatAsRead(chatId, latestMessage.timestamp)
     }
   }, [markChatAsRead, serverUrl, syncChatPreview, syncChatTimestamp, upsertMessages])
+
+  const handleCallSignalMessage = useCallback(async (
+    payloadMessage: MessageRecord,
+    signal: CallSignalPayload,
+  ) => {
+    const currentUserId = userIdRef.current
+
+    if (payloadMessage.senderUserId === currentUserId) {
+      return
+    }
+
+    const chat = chatsRef.current.find((entry) => entry.chatId === signal.chatId)
+    const participant = chat?.username ?? payloadMessage.senderUserId
+    const activeCall = activeCallStateRef.current
+
+    setEventLog((current) =>
+      appendLog(current, `Received call signal: ${signal.kind} (${signal.chatId}/${signal.callId})`),
+    )
+
+    if (signal.kind === 'offer') {
+      if (activeCall && activeCall.callId !== signal.callId) {
+        void sendCallSignal(
+          {
+            version: 1,
+            kind: 'reject',
+            chatId: signal.chatId,
+            callId: signal.callId,
+            reason: 'busy',
+          },
+          { log: false },
+        )
+        return
+      }
+
+      if (activeCall?.callId === signal.callId) {
+        return
+      }
+
+      pendingOfferRef.current = {
+        type: 'offer',
+        sdp: signal.sdp,
+      }
+      queuedIceCandidatesRef.current = []
+      remoteDescriptionReadyRef.current = false
+
+      if (selectedChatIdRef.current !== signal.chatId) {
+        setSelectedChatId(signal.chatId)
+        setIsHistoryLoading(true)
+      } else if (!threadsRef.current[signal.chatId] && currentUserId) {
+        setIsHistoryLoading(true)
+        void loadHistory(signal.chatId, currentUserId)
+          .catch((error: Error) => {
+            setEventLog((current) =>
+              appendLog(current, `Cannot load history: ${error.message}`),
+            )
+          })
+          .finally(() => {
+            setIsHistoryLoading(false)
+          })
+      }
+
+      setActiveCallState({
+        chatId: signal.chatId,
+        callId: signal.callId,
+        participant,
+        direction: 'incoming',
+        phase: 'incoming',
+      })
+      return
+    }
+
+    if (!activeCall || activeCall.callId !== signal.callId || activeCall.chatId !== signal.chatId) {
+      return
+    }
+
+    switch (signal.kind) {
+      case 'answer': {
+        const peerConnection = peerConnectionRef.current
+
+        if (!peerConnection) {
+          return
+        }
+
+        await peerConnection.setRemoteDescription({
+          type: 'answer',
+          sdp: signal.sdp,
+        })
+        remoteDescriptionReadyRef.current = true
+        await flushQueuedIceCandidates()
+        setActiveCallState({
+          ...activeCall,
+          phase: 'connecting',
+        })
+        return
+      }
+      case 'ice-candidate': {
+        const peerConnection = peerConnectionRef.current
+
+        if (!peerConnection || !remoteDescriptionReadyRef.current) {
+          queuedIceCandidatesRef.current.push(signal.candidate)
+          return
+        }
+
+        try {
+          await peerConnection.addIceCandidate(signal.candidate)
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'Cannot apply remote ICE candidate.'
+          setEventLog((current) => appendLog(current, message))
+        }
+        return
+      }
+      case 'reject':
+        setEventLog((current) =>
+          appendLog(
+            current,
+            `Call rejected by ${participant}${signal.reason ? ` (${signal.reason})` : '.'}`,
+          ),
+        )
+        resetCallSession()
+        return
+      case 'end':
+        setEventLog((current) => appendLog(current, `Call ended by ${participant}.`))
+        resetCallSession()
+        return
+      default:
+        return
+    }
+  }, [flushQueuedIceCandidates, loadHistory, resetCallSession, sendCallSignal])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -452,10 +976,25 @@ export function App() {
       }
 
       clearTypingRefreshTimer()
+      resetCallSession()
 
       socketRef.current?.close()
     }
-  }, [clearTypingRefreshTimer])
+  }, [clearTypingRefreshTimer, resetCallSession])
+
+  useEffect(() => {
+    const activeCall = activeCallStateRef.current
+
+    if (!activeCall) {
+      return
+    }
+
+    if (selectedChatId === activeCall.chatId) {
+      return
+    }
+
+    endActiveCall({ notifyRemote: true })
+  }, [endActiveCall, selectedChatId])
 
   useEffect(() => {
     const currentUserId = userId.trim()
@@ -628,6 +1167,20 @@ export function App() {
         payload = JSON.parse(raw) as WebSocketIncomingEvent
       } catch {
         setEventLog((current) => appendLog(current, `Ignored non-JSON message: ${raw}`))
+        return
+      }
+
+      if (isMessageRecord(payload) && isCallSignalText(payload.text)) {
+        const signal = parseCallSignalText(payload.text)
+
+        if (!signal) {
+          setEventLog((current) =>
+            appendLog(current, 'Ignored malformed hidden call signal message.'),
+          )
+          return
+        }
+
+        void handleCallSignalMessage(payload, signal)
         return
       }
 
@@ -810,6 +1363,7 @@ export function App() {
       setThreads({})
       setSelectedChatId(null)
       setReadMarkers({})
+      resetCallSession()
       clearTypingRefreshTimer()
       activeTypingChatIdRef.current = null
       socketRef.current = null
@@ -822,6 +1376,7 @@ export function App() {
       return
     }
 
+    endActiveCall({ notifyRemote: true })
     stopLocalTyping(activeTypingChatIdRef.current)
     socketRef.current.close()
   }
@@ -995,10 +1550,17 @@ export function App() {
                       isHistoryLoading={isHistoryLoading || isBootstrapping}
                       isDrafting={isDrafting}
                       remoteTypingLabel={remoteTypingLabel}
+                      callPhase={selectedCallPhase}
+                      localCallStream={localCallStream}
+                      remoteCallStream={remoteCallStream}
                       messageDraft={messageDraft}
                       onMessageDraftChange={setMessageDraft}
                       onBackToInbox={() => setSelectedChatId(null)}
+                      onAcceptCall={handleAcceptCall}
+                      onDeclineCall={rejectIncomingCall}
+                      onEndCall={() => endActiveCall({ notifyRemote: true })}
                       onSendMessage={handleSendMessage}
+                      onStartCall={handleStartCall}
                     />
 
                     <EventLogPanel lines={eventLog.slice(0, 18)} />
@@ -1031,10 +1593,17 @@ export function App() {
                     isHistoryLoading={isHistoryLoading || isBootstrapping}
                     isDrafting={isDrafting}
                     remoteTypingLabel={remoteTypingLabel}
+                    callPhase={selectedCallPhase}
+                    localCallStream={localCallStream}
+                    remoteCallStream={remoteCallStream}
                     messageDraft={messageDraft}
                     onMessageDraftChange={setMessageDraft}
                     onBackToInbox={() => setSelectedChatId(null)}
+                    onAcceptCall={handleAcceptCall}
+                    onDeclineCall={rejectIncomingCall}
+                    onEndCall={() => endActiveCall({ notifyRemote: true })}
                     onSendMessage={handleSendMessage}
+                    onStartCall={handleStartCall}
                   />
 
                   <EventLogPanel lines={eventLog.slice(0, 18)} />

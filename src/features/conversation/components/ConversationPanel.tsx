@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { ChangeEvent, KeyboardEvent } from 'react'
 import type { ConnectionStatus } from '../../../shared/types/chat'
-import type { ChatThread, UserPresence } from '../../../shared/types/chat'
+import type { CallPhase, ChatThread, UserPresence } from '../../../shared/types/chat'
 import {
   itemReveal,
   listStagger,
@@ -58,10 +58,17 @@ interface ConversationPanelProps {
   isHistoryLoading: boolean
   isDrafting: boolean
   remoteTypingLabel: string | null
+  callPhase: CallPhase
+  localCallStream: MediaStream | null
+  remoteCallStream: MediaStream | null
   messageDraft: string
   onMessageDraftChange: (value: string) => void
   onBackToInbox: () => void
+  onAcceptCall: () => void
+  onDeclineCall: () => void
+  onEndCall: () => void
   onSendMessage: () => void
+  onStartCall: () => void
 }
 
 export function ConversationPanel({
@@ -74,14 +81,23 @@ export function ConversationPanel({
   isHistoryLoading,
   isDrafting,
   remoteTypingLabel,
+  callPhase,
+  localCallStream,
+  remoteCallStream,
   messageDraft,
   onMessageDraftChange,
   onBackToInbox,
+  onAcceptCall,
+  onDeclineCall,
+  onEndCall,
   onSendMessage,
+  onStartCall,
 }: ConversationPanelProps) {
   const historyRef = useRef<HTMLDivElement | null>(null)
   const historyBottomRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const localAudioRef = useRef<HTMLAudioElement | null>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
   const previousChatIdRef = useRef<string | null>(null)
   const [isComposerFocused, setIsComposerFocused] = useState(false)
   const [isHistoryAnchored, setIsHistoryAnchored] = useState(false)
@@ -175,6 +191,12 @@ export function ConversationPanel({
   }
   const pendingParticipant = pendingParticipantName?.trim() || null
   const isMobilePendingThread = isMobileLayout && !thread && isHistoryLoading
+  const hasVisibleThreadMessages = Boolean(thread?.messages.length)
+  const showHistoryLoadingState = isHistoryLoading && !hasVisibleThreadMessages
+  const callParticipantLabel = thread?.participant ?? pendingParticipant ?? 'your contact'
+  const isIncomingCall = callPhase === 'incoming'
+  const isActiveCallPhase =
+    callPhase === 'outgoing' || callPhase === 'connecting' || callPhase === 'active'
   const conversationTitle = thread
     ? thread.participant
     : isMobilePendingThread
@@ -189,12 +211,30 @@ export function ConversationPanel({
       ? 'Loading messages...'
     : 'No chat selected'
   const visibleHistoryFadeState =
-    thread && !isHistoryLoading
+    thread && !showHistoryLoadingState
       ? historyFadeState
       : {
           showTopFade: false,
           showBottomFade: false,
         }
+  const callButtonLabel = isActiveCallPhase ? 'End audio call' : 'Start audio call'
+  const isCallButtonDisabled =
+    !thread ||
+    connectionStatus !== 'connected' ||
+    showHistoryLoadingState ||
+    isIncomingCall
+
+  useEffect(() => {
+    if (localAudioRef.current) {
+      localAudioRef.current.srcObject = localCallStream
+    }
+  }, [localCallStream])
+
+  useEffect(() => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteCallStream
+    }
+  }, [remoteCallStream])
 
   useLayoutEffect(() => {
     const currentChatId = thread?.chatId ?? null
@@ -213,7 +253,7 @@ export function ConversationPanel({
       }
     }
 
-    if (isHistoryLoading) {
+    if (showHistoryLoadingState) {
       const frameId = window.requestAnimationFrame(() => {
         setIsHistoryAnchored(false)
       })
@@ -243,10 +283,10 @@ export function ConversationPanel({
     return () => {
       window.cancelAnimationFrame(frameId)
     }
-  }, [isHistoryLoading, scrollHistoryToLatest, thread?.chatId, updateHistoryFadeState])
+  }, [showHistoryLoadingState, scrollHistoryToLatest, thread?.chatId, updateHistoryFadeState])
 
   useLayoutEffect(() => {
-    if (isHistoryLoading || !thread) {
+    if (showHistoryLoadingState || !thread) {
       return
     }
 
@@ -259,7 +299,13 @@ export function ConversationPanel({
     return () => {
       window.cancelAnimationFrame(frameId)
     }
-  }, [thread?.messages.length, isHistoryLoading, scrollHistoryToLatest, thread, updateHistoryFadeState])
+  }, [
+    thread?.messages.length,
+    showHistoryLoadingState,
+    scrollHistoryToLatest,
+    thread,
+    updateHistoryFadeState,
+  ])
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -399,14 +445,101 @@ export function ConversationPanel({
             </div>
           </div>
         </div>
-        <div className="conversation-summary">
-          <div className="conversation-stat">
-            {thread ? `${thread.messages.length} messages synced` : 'Realtime shell ready'}
+        <div className="conversation-actions">
+          <motion.button
+            className={`conversation-call-button ${isActiveCallPhase ? 'is-live' : ''}`}
+            type="button"
+            aria-label={callButtonLabel}
+            disabled={isCallButtonDisabled}
+            whileHover={isCallButtonDisabled ? undefined : { y: -1, scale: 1.01 }}
+            whileTap={isCallButtonDisabled ? undefined : { scale: 0.97 }}
+            transition={springTransition}
+            onClick={isActiveCallPhase ? onEndCall : onStartCall}
+          >
+            <svg
+              className="conversation-call-button-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                className="conversation-call-button-icon-stroke"
+                d="M8.2 5.6a1 1 0 0 1 1.1-.4l2.3.8a1 1 0 0 1 .7 1.2l-.6 2.1a1.7 1.7 0 0 0 .4 1.6l1.1 1.1c.4.4 1 .6 1.6.4l2.1-.6a1 1 0 0 1 1.2.7l.8 2.3a1 1 0 0 1-.4 1.1 6.7 6.7 0 0 1-4.4.8A12.6 12.6 0 0 1 5.8 8.9a6.7 6.7 0 0 1 .8-3.3Z"
+              />
+            </svg>
+          </motion.button>
+          <div className="conversation-summary">
+            <div className="conversation-stat">
+              {thread ? `${thread.messages.length} messages synced` : 'Realtime shell ready'}
+            </div>
           </div>
         </div>
       </motion.div>
 
-      <motion.div className="history-shell" variants={itemReveal} layout>
+      <AnimatePresence initial={false}>
+        {callPhase !== 'idle' ? (
+          <motion.div
+            key={`call-banner-${callPhase}`}
+            className="conversation-call-banner"
+            initial={{ opacity: 0, y: -10, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -8, filter: 'blur(6px)' }}
+            transition={panelTransition}
+          >
+            <div className="conversation-call-copy">
+              <div className="conversation-call-eyebrow">Audio call</div>
+              <div className="conversation-call-title">
+                {callPhase === 'incoming'
+                  ? `${callParticipantLabel} is calling`
+                  : callPhase === 'outgoing'
+                    ? `Calling ${callParticipantLabel}...`
+                    : callPhase === 'connecting'
+                      ? `Connecting with ${callParticipantLabel}...`
+                      : 'Call in progress'}
+              </div>
+            </div>
+            <div className="conversation-call-actions">
+              {callPhase === 'incoming' ? (
+                <>
+                  <motion.button
+                    className="conversation-call-action"
+                    type="button"
+                    onClick={onAcceptCall}
+                    whileHover={{ y: -1, scale: 1.01 }}
+                    whileTap={{ scale: 0.97 }}
+                    transition={springTransition}
+                  >
+                    Accept
+                  </motion.button>
+                  <motion.button
+                    className="conversation-call-action secondary"
+                    type="button"
+                    onClick={() => onDeclineCall()}
+                    whileHover={{ y: -1, scale: 1.01 }}
+                    whileTap={{ scale: 0.97 }}
+                    transition={springTransition}
+                  >
+                    Decline
+                  </motion.button>
+                </>
+              ) : (
+                <motion.button
+                  className="conversation-call-action secondary"
+                  type="button"
+                  onClick={onEndCall}
+                  whileHover={{ y: -1, scale: 1.01 }}
+                  whileTap={{ scale: 0.97 }}
+                  transition={springTransition}
+                >
+                  {callPhase === 'outgoing' ? 'Cancel' : 'Hang up'}
+                </motion.button>
+              )}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <motion.div className="history-shell" variants={itemReveal}>
         <div className="history-viewport">
           <div
             className={`history-edge-fade top ${visibleHistoryFadeState.showTopFade ? 'visible' : ''}`}
@@ -417,7 +550,7 @@ export function ConversationPanel({
             aria-hidden="true"
           />
           <AnimatePresence>
-            {thread && !isHistoryLoading && isHistoryAnchored && visibleHistoryFadeState.showBottomFade ? (
+            {thread && !showHistoryLoadingState && isHistoryAnchored && visibleHistoryFadeState.showBottomFade ? (
               <motion.button
                 key="history-scroll-button"
                 className="history-scroll-button"
@@ -443,12 +576,12 @@ export function ConversationPanel({
             ) : null}
           </AnimatePresence>
           <div
-            className={`history ${thread && !isHistoryLoading && !isHistoryAnchored ? 'is-anchoring' : ''}`}
+            className={`history ${thread && !showHistoryLoadingState && !isHistoryAnchored ? 'is-anchoring' : ''}`}
             ref={historyRef}
           >
-            <div className="history-content">
+            <div className={`history-content ${thread && !showHistoryLoadingState ? 'has-thread' : ''}`}>
               <AnimatePresence initial={false}>
-                {isHistoryLoading ? (
+                {showHistoryLoadingState ? (
                   <motion.div
                     key="history-loading"
                     className="history-loading"
@@ -565,7 +698,6 @@ export function ConversationPanel({
           handleSubmit()
         }}
         variants={itemReveal}
-        layout
       >
         <motion.div
           className="composer-panel-halo"
@@ -655,6 +787,9 @@ export function ConversationPanel({
           </div>
         </div>
       </motion.form>
+
+      <audio ref={localAudioRef} autoPlay playsInline muted className="conversation-audio" />
+      <audio ref={remoteAudioRef} autoPlay playsInline className="conversation-audio" />
 
       {typeof document !== 'undefined' && isEmojiPickerOpen && thread && isMobileLayout
         ? createPortal(

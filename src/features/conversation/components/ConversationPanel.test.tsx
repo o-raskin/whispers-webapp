@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ConversationPanel } from './ConversationPanel'
-import type { ChatThread, UserPresence } from '../../../shared/types/chat'
+import type { CallPhase, ChatThread, UserPresence } from '../../../shared/types/chat'
 
 describe('ConversationPanel', () => {
   const thread: ChatThread = {
@@ -33,47 +33,81 @@ describe('ConversationPanel', () => {
     lastPingReceivedAt: Date.now(),
   }
 
-  test('renders the welcome state when no thread is selected', () => {
-    render(
+  function renderConversationPanel({
+    callPhase = 'idle',
+    isHistoryLoading = false,
+    isMobileLayout = false,
+    messageDraft = '',
+    onAcceptCall = vi.fn(),
+    onBackToInbox = vi.fn(),
+    onDeclineCall = vi.fn(),
+    onEndCall = vi.fn(),
+    onMessageDraftChange = vi.fn(),
+    onSendMessage = vi.fn(),
+    onStartCall = vi.fn(),
+    pendingParticipantName = null,
+    remoteTypingLabel = null,
+    selectedThread = thread,
+  }: {
+    callPhase?: CallPhase
+    isHistoryLoading?: boolean
+    isMobileLayout?: boolean
+    messageDraft?: string
+    onAcceptCall?: () => void
+    onBackToInbox?: () => void
+    onDeclineCall?: () => void
+    onEndCall?: () => void
+    onMessageDraftChange?: (value: string) => void
+    onSendMessage?: () => void
+    onStartCall?: () => void
+    pendingParticipantName?: string | null
+    remoteTypingLabel?: string | null
+    selectedThread?: ChatThread | null
+  }) {
+    return render(
       <ConversationPanel
-        thread={null}
-        user={null}
+        thread={selectedThread}
+        pendingParticipantName={pendingParticipantName}
+        user={selectedThread ? user : null}
         currentUserId="alice"
-        isMobileLayout={false}
-        connectionStatus="disconnected"
-        isHistoryLoading={false}
-        isDrafting={false}
-        remoteTypingLabel={null}
-        messageDraft=""
-        onMessageDraftChange={vi.fn()}
-        onBackToInbox={vi.fn()}
-        onSendMessage={vi.fn()}
+        isMobileLayout={isMobileLayout}
+        connectionStatus={selectedThread ? 'connected' : 'disconnected'}
+        isHistoryLoading={isHistoryLoading}
+        isDrafting={Boolean(messageDraft.trim())}
+        remoteTypingLabel={remoteTypingLabel}
+        callPhase={callPhase}
+        localCallStream={null}
+        remoteCallStream={null}
+        messageDraft={messageDraft}
+        onMessageDraftChange={onMessageDraftChange}
+        onBackToInbox={onBackToInbox}
+        onAcceptCall={onAcceptCall}
+        onDeclineCall={onDeclineCall}
+        onEndCall={onEndCall}
+        onSendMessage={onSendMessage}
+        onStartCall={onStartCall}
       />,
     )
+  }
+
+  test('renders the welcome state when no thread is selected', () => {
+    renderConversationPanel({
+      selectedThread: null,
+    })
 
     expect(screen.getByText('Welcome to Whispers')).toBeInTheDocument()
     expect(screen.getByText('Your conversation space is ready.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Start audio call' })).toBeDisabled()
   })
 
   test('does not render the desktop welcome copy during mobile loading', () => {
-    render(
-      <ConversationPanel
-        thread={null}
-        pendingParticipantName="bob"
-        user={null}
-        currentUserId="alice"
-        isMobileLayout={true}
-        connectionStatus="connected"
-        isHistoryLoading={true}
-        isDrafting={false}
-        remoteTypingLabel={null}
-        messageDraft=""
-        onMessageDraftChange={vi.fn()}
-        onBackToInbox={vi.fn()}
-        onSendMessage={vi.fn()}
-      />,
-    )
+    renderConversationPanel({
+      selectedThread: null,
+      pendingParticipantName: 'bob',
+      isMobileLayout: true,
+      isHistoryLoading: true,
+    })
 
     expect(screen.getByRole('heading', { name: 'bob' })).toBeInTheDocument()
     expect(screen.getByText('Loading messages...')).toBeInTheDocument()
@@ -89,8 +123,56 @@ describe('ConversationPanel', () => {
     const onBackToInbox = vi.fn()
     const onSendMessage = vi.fn()
     const onMessageDraftChange = vi.fn()
+    const onStartCall = vi.fn()
 
-    render(
+    renderConversationPanel({
+      isMobileLayout: true,
+      messageDraft: 'Draft copy',
+      onBackToInbox,
+      onMessageDraftChange,
+      onSendMessage,
+      onStartCall,
+      remoteTypingLabel: 'bob',
+    })
+
+    expect(screen.getByRole('heading', { name: 'bob' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start audio call' })).toBeInTheDocument()
+    expect(screen.getByText('typing')).toBeInTheDocument()
+    expect(screen.getByText('You')).toBeInTheDocument()
+    expect(screen.getByText('Hello Alice')).toBeInTheDocument()
+    expect(screen.getByText('Hi Bob')).toBeInTheDocument()
+
+    await userEventApi.click(screen.getByRole('button', { name: 'Back to inbox' }))
+    await userEventApi.click(screen.getByRole('button', { name: 'Start audio call' }))
+    await userEventApi.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(onBackToInbox).toHaveBeenCalledTimes(1)
+    expect(onStartCall).toHaveBeenCalledTimes(1)
+    expect(onSendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  test('shows incoming and active call controls', async () => {
+    const userEventApi = userEvent.setup()
+    const onAcceptCall = vi.fn()
+    const onDeclineCall = vi.fn()
+    const onEndCall = vi.fn()
+
+    const { rerender } = renderConversationPanel({
+      callPhase: 'incoming',
+      onAcceptCall,
+      onDeclineCall,
+      onEndCall,
+    })
+
+    expect(screen.getByText('bob is calling')).toBeInTheDocument()
+
+    await userEventApi.click(screen.getByRole('button', { name: 'Accept' }))
+    await userEventApi.click(screen.getByRole('button', { name: 'Decline' }))
+
+    expect(onAcceptCall).toHaveBeenCalledTimes(1)
+    expect(onDeclineCall).toHaveBeenCalledTimes(1)
+
+    rerender(
       <ConversationPanel
         thread={thread}
         user={user}
@@ -98,26 +180,49 @@ describe('ConversationPanel', () => {
         isMobileLayout={true}
         connectionStatus="connected"
         isHistoryLoading={false}
-        isDrafting={true}
-        remoteTypingLabel="bob"
-        messageDraft="Draft copy"
-        onMessageDraftChange={onMessageDraftChange}
-        onBackToInbox={onBackToInbox}
-        onSendMessage={onSendMessage}
+        isDrafting={false}
+        remoteTypingLabel={null}
+        callPhase="active"
+        localCallStream={null}
+        remoteCallStream={null}
+        messageDraft=""
+        onMessageDraftChange={vi.fn()}
+        onBackToInbox={vi.fn()}
+        onAcceptCall={vi.fn()}
+        onDeclineCall={vi.fn()}
+        onEndCall={onEndCall}
+        onSendMessage={vi.fn()}
+        onStartCall={vi.fn()}
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'bob' })).toBeInTheDocument()
-    expect(screen.getByText('typing')).toBeInTheDocument()
-    expect(screen.getByText('You')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'End audio call' })).toBeInTheDocument()
+
+    await userEventApi.click(screen.getByRole('button', { name: 'Hang up' }))
+
+    expect(onEndCall).toHaveBeenCalledTimes(1)
+  })
+
+  test('shows the compact call banner without changing thread visibility', () => {
+    renderConversationPanel({
+      callPhase: 'incoming',
+    })
+
+    expect(screen.getByText('bob is calling')).toBeInTheDocument()
     expect(screen.getByText('Hello Alice')).toBeInTheDocument()
     expect(screen.getByText('Hi Bob')).toBeInTheDocument()
+  })
 
-    await userEventApi.click(screen.getByRole('button', { name: 'Back to inbox' }))
-    await userEventApi.click(screen.getByRole('button', { name: 'Send message' }))
+  test('keeps visible messages and enabled call control during background history refresh', () => {
+    renderConversationPanel({
+      isHistoryLoading: true,
+      callPhase: 'idle',
+    })
 
-    expect(onBackToInbox).toHaveBeenCalledTimes(1)
-    expect(onSendMessage).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Hello Alice')).toBeInTheDocument()
+    expect(screen.getByText('Hi Bob')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Loading conversation')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start audio call' })).toBeEnabled()
   })
 
   test('sends on enter and inserts emoji into the draft at the cursor position', async () => {
@@ -125,22 +230,12 @@ describe('ConversationPanel', () => {
     const onSendMessage = vi.fn()
     const onMessageDraftChange = vi.fn()
 
-    render(
-      <ConversationPanel
-        thread={thread}
-        user={user}
-        currentUserId="alice"
-        isMobileLayout={false}
-        connectionStatus="connected"
-        isHistoryLoading={false}
-        isDrafting={false}
-        remoteTypingLabel={null}
-        messageDraft="Hi there"
-        onMessageDraftChange={onMessageDraftChange}
-        onBackToInbox={vi.fn()}
-        onSendMessage={onSendMessage}
-      />,
-    )
+    renderConversationPanel({
+      isMobileLayout: false,
+      messageDraft: 'Hi there',
+      onMessageDraftChange,
+      onSendMessage,
+    })
 
     const textarea = screen.getByPlaceholderText('Send a message to bob') as HTMLTextAreaElement
     textarea.setSelectionRange(2, 2)
@@ -156,22 +251,10 @@ describe('ConversationPanel', () => {
   test('opens the emoji picker as a centered mobile dialog', async () => {
     const userEventApi = userEvent.setup()
 
-    render(
-      <ConversationPanel
-        thread={thread}
-        user={user}
-        currentUserId="alice"
-        isMobileLayout={true}
-        connectionStatus="connected"
-        isHistoryLoading={false}
-        isDrafting={false}
-        remoteTypingLabel={null}
-        messageDraft="Hi there"
-        onMessageDraftChange={vi.fn()}
-        onBackToInbox={vi.fn()}
-        onSendMessage={vi.fn()}
-      />,
-    )
+    renderConversationPanel({
+      isMobileLayout: true,
+      messageDraft: 'Hi there',
+    })
 
     await userEventApi.click(screen.getByRole('button', { name: 'Choose emoji' }))
 

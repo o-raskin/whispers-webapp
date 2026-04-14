@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
 import { PRESENCE_PING_INTERVAL_MS } from '../shared/config/backend'
+import { buildCallSignalText, parseCallSignalText } from '../shared/utils/callSignals'
 
 const apiMocks = vi.hoisted(() => ({
   mockBuildWebSocketUrl: vi.fn(
@@ -115,21 +116,35 @@ vi.mock('../features/chat-list/components/ChatSidebar', () => ({
 
 vi.mock('../features/conversation/components/ConversationPanel', () => ({
   ConversationPanel: ({
-    thread,
-    remoteTypingLabel,
-    messageDraft,
+    callPhase,
     connectionStatus,
+    localCallStream,
+    thread,
+    onAcceptCall,
+    remoteTypingLabel,
+    onDeclineCall,
+    onEndCall,
+    messageDraft,
     onMessageDraftChange,
     onBackToInbox,
     onSendMessage,
+    onStartCall,
+    remoteCallStream,
   }: {
+    callPhase: string
+    connectionStatus: string
+    localCallStream: MediaStream | null
     thread: { participant: string; messages: Array<{ text: string }> } | null
     remoteTypingLabel: string | null
+    onAcceptCall: () => void
+    onDeclineCall: () => void
+    onEndCall: () => void
     messageDraft: string
-    connectionStatus: string
     onMessageDraftChange: (value: string) => void
     onBackToInbox: () => void
     onSendMessage: () => void
+    onStartCall: () => void
+    remoteCallStream: MediaStream | null
   }) => (
     <div data-testid="conversation">
       <div data-testid="participant">{thread?.participant ?? 'none'}</div>
@@ -138,12 +153,27 @@ vi.mock('../features/conversation/components/ConversationPanel', () => ({
         {thread?.messages.at(-1)?.text ?? 'no-messages'}
       </div>
       <div data-testid="typing">{remoteTypingLabel ?? 'none'}</div>
+      <div data-testid="call-phase">{callPhase}</div>
+      <div data-testid="local-stream">{localCallStream ? 'yes' : 'no'}</div>
+      <div data-testid="remote-stream">{remoteCallStream ? 'yes' : 'no'}</div>
       <div data-testid="connection-status">{connectionStatus}</div>
       <input
         aria-label="draft"
         value={messageDraft}
         onChange={(event) => onMessageDraftChange(event.target.value)}
       />
+      <button type="button" onClick={onStartCall}>
+        start audio call
+      </button>
+      <button type="button" onClick={onAcceptCall}>
+        accept audio call
+      </button>
+      <button type="button" onClick={() => onDeclineCall()}>
+        decline audio call
+      </button>
+      <button type="button" onClick={onEndCall}>
+        end audio call
+      </button>
       <button type="button" onClick={onSendMessage}>
         send message
       </button>
@@ -203,10 +233,128 @@ class MockWebSocket {
   }
 }
 
+class MockMediaStreamTrack {
+  readonly id: string
+
+  constructor(id: string) {
+    this.id = id
+  }
+
+  stop() {}
+}
+
+class MockMediaStream {
+  private readonly tracks: MockMediaStreamTrack[]
+
+  constructor(tracks: MockMediaStreamTrack[] = [new MockMediaStreamTrack('track-1')]) {
+    this.tracks = tracks
+  }
+
+  getTracks() {
+    return this.tracks
+  }
+
+  addTrack(track: MockMediaStreamTrack) {
+    this.tracks.push(track)
+  }
+}
+
+class MockRTCPeerConnection {
+  static instances: MockRTCPeerConnection[] = []
+
+  connectionState: RTCPeerConnectionState = 'new'
+  localDescription: RTCSessionDescriptionInit | null = null
+  remoteDescription: RTCSessionDescriptionInit | null = null
+  onicecandidate: ((event: { candidate: { toJSON: () => RTCIceCandidateInit } | null }) => void) | null = null
+  ontrack: ((event: { streams: MockMediaStream[]; track: MockMediaStreamTrack }) => void) | null = null
+  onconnectionstatechange: (() => void) | null = null
+  private readonly senders: Array<{ track: MockMediaStreamTrack | null }> = []
+
+  constructor(_config?: RTCConfiguration) {
+    void _config
+    MockRTCPeerConnection.instances.push(this)
+  }
+
+  getSenders() {
+    return this.senders
+  }
+
+  addTrack(track: MockMediaStreamTrack, _stream: MockMediaStream) {
+    void _stream
+    this.senders.push({ track })
+    return { track }
+  }
+
+  async createOffer() {
+    return {
+      type: 'offer' as const,
+      sdp: 'mock-offer-sdp',
+    }
+  }
+
+  async createAnswer() {
+    return {
+      type: 'answer' as const,
+      sdp: 'mock-answer-sdp',
+    }
+  }
+
+  async setLocalDescription(description: RTCSessionDescriptionInit) {
+    this.localDescription = description
+  }
+
+  async setRemoteDescription(description: RTCSessionDescriptionInit) {
+    this.remoteDescription = description
+  }
+
+  async addIceCandidate(_candidate: RTCIceCandidateInit) {
+    void _candidate
+  }
+
+  close() {
+    this.connectionState = 'closed'
+  }
+
+  emitConnectionState(state: RTCPeerConnectionState) {
+    this.connectionState = state
+    this.onconnectionstatechange?.()
+  }
+
+  emitTrack(stream = new MockMediaStream()) {
+    this.ontrack?.({
+      streams: [stream],
+      track: stream.getTracks()[0],
+    })
+  }
+
+  emitIceCandidate(candidate: RTCIceCandidateInit) {
+    this.onicecandidate?.({
+      candidate: {
+        toJSON: () => candidate,
+      },
+    })
+  }
+}
+
 describe('App', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
+    MockRTCPeerConnection.instances = []
     vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
+    vi.stubGlobal(
+      'RTCPeerConnection',
+      MockRTCPeerConnection as unknown as typeof RTCPeerConnection,
+    )
+    vi.stubGlobal('MediaStream', MockMediaStream as unknown as typeof MediaStream)
+    vi.stubGlobal('crypto', {
+      randomUUID: () => 'call-1',
+    } as unknown as Crypto)
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn(async () => new MockMediaStream()),
+      },
+    })
   })
 
   afterEach(() => {
@@ -499,6 +647,372 @@ describe('App', () => {
         { type: 'TYPING_END', chatId: 'chat-1' },
       )
     })
+  })
+
+  test('starts an audio call by sending a hidden offer signal', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: 'Ready for a call',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText('welcome user id'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'connect' }))
+
+    const socket = MockWebSocket.instances[0]
+    await act(async () => {
+      socket.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('participant')).toHaveTextContent('bob')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'start audio call' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('outgoing')
+      expect(screen.getByTestId('local-stream')).toHaveTextContent('yes')
+    })
+
+    const offerPayload = apiMocks.mockSendWebSocketCommand.mock.calls
+      .map(([, payload]) => payload)
+      .find(
+        (payload): payload is { type: string; chatId: string; text: string } =>
+          typeof payload === 'object' &&
+          payload !== null &&
+          'type' in payload &&
+          payload.type === 'MESSAGE' &&
+          'chatId' in payload &&
+          typeof payload.chatId === 'string' &&
+          'text' in payload &&
+          typeof payload.text === 'string' &&
+          parseCallSignalText(payload.text)?.kind === 'offer',
+      )
+
+    expect(offerPayload).toEqual(
+      expect.objectContaining({
+        type: 'MESSAGE',
+        chatId: 'chat-1',
+      }),
+    )
+    expect(parseCallSignalText(String(offerPayload?.text))).toEqual(
+      expect.objectContaining({
+        version: 1,
+        kind: 'offer',
+        chatId: 'chat-1',
+        callId: 'call-1',
+        sdp: 'mock-offer-sdp',
+      }),
+    )
+  })
+
+  test('keeps hidden call signaling out of chat history and unread state', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: 'Visible hello',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: buildCallSignalText({
+          version: 1,
+          kind: 'offer',
+          chatId: 'chat-1',
+          callId: 'call-remote',
+          sdp: 'remote-offer',
+        }),
+        timestamp: '2026-04-12T10:01:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText('welcome user id'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'connect' }))
+
+    const socket = MockWebSocket.instances[0]
+    await act(async () => {
+      socket.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('message-count')).toHaveTextContent('1')
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Visible hello')
+    })
+
+    await act(async () => {
+      socket.emitMessage(
+        JSON.stringify({
+          type: 'MESSAGE',
+          chatId: 'chat-1',
+          senderUserId: 'bob',
+          text: buildCallSignalText({
+            version: 1,
+            kind: 'offer',
+            chatId: 'chat-1',
+            callId: 'call-incoming',
+            sdp: 'incoming-offer',
+          }),
+          timestamp: '2026-04-12T10:02:00Z',
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('incoming')
+      expect(screen.getByTestId('message-count')).toHaveTextContent('1')
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Visible hello')
+    })
+  })
+
+  test('clears the active call state when the remote peer rejects the call', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: 'Ready when you are',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText('welcome user id'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'connect' }))
+
+    const socket = MockWebSocket.instances[0]
+    await act(async () => {
+      socket.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('participant')).toHaveTextContent('bob')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'start audio call' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('outgoing')
+    })
+
+    await act(async () => {
+      socket.emitMessage(
+        JSON.stringify({
+          type: 'MESSAGE',
+          chatId: 'chat-1',
+          senderUserId: 'bob',
+          text: buildCallSignalText({
+            version: 1,
+            kind: 'reject',
+            chatId: 'chat-1',
+            callId: 'call-1',
+            reason: 'busy',
+          }),
+          timestamp: '2026-04-12T10:03:00Z',
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('idle')
+      expect(screen.getByTestId('local-stream')).toHaveTextContent('no')
+      expect(screen.getByTestId('remote-stream')).toHaveTextContent('no')
+    })
+  })
+
+  test('clears the active call state when the remote peer ends the call', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: 'Ready when you are',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText('welcome user id'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'connect' }))
+
+    const socket = MockWebSocket.instances[0]
+    await act(async () => {
+      socket.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('participant')).toHaveTextContent('bob')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'start audio call' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('outgoing')
+    })
+
+    await act(async () => {
+      socket.emitMessage(
+        JSON.stringify({
+          type: 'MESSAGE',
+          chatId: 'chat-1',
+          senderUserId: 'bob',
+          text: buildCallSignalText({
+            version: 1,
+            kind: 'end',
+            chatId: 'chat-1',
+            callId: 'call-1',
+          }),
+          timestamp: '2026-04-12T10:04:00Z',
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('idle')
+      expect(screen.getByTestId('local-stream')).toHaveTextContent('no')
+      expect(screen.getByTestId('remote-stream')).toHaveTextContent('no')
+    })
+  })
+
+  test('declines an incoming call from the currently open chat', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: 'Visible hello',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText('welcome user id'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'connect' }))
+
+    const socket = MockWebSocket.instances[0]
+    await act(async () => {
+      socket.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('participant')).toHaveTextContent('bob')
+      expect(screen.getByTestId('message-count')).toHaveTextContent('1')
+    })
+
+    await act(async () => {
+      socket.emitMessage(
+        JSON.stringify({
+          type: 'MESSAGE',
+          chatId: 'chat-1',
+          senderUserId: 'bob',
+          text: buildCallSignalText({
+            version: 1,
+            kind: 'offer',
+            chatId: 'chat-1',
+            callId: 'call-incoming',
+            sdp: 'incoming-offer',
+          }),
+          timestamp: '2026-04-12T10:02:00Z',
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('incoming')
+      expect(screen.getByTestId('message-count')).toHaveTextContent('1')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'decline audio call' }))
+
+    const rejectPayload = apiMocks.mockSendWebSocketCommand.mock.calls
+      .map(([, payload]) => payload)
+      .find(
+        (payload): payload is { type: string; chatId: string; text: string } =>
+          typeof payload === 'object' &&
+          payload !== null &&
+          'type' in payload &&
+          payload.type === 'MESSAGE' &&
+          'chatId' in payload &&
+          typeof payload.chatId === 'string' &&
+          'text' in payload &&
+          typeof payload.text === 'string' &&
+          parseCallSignalText(payload.text)?.kind === 'reject',
+      )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('idle')
+      expect(screen.getByTestId('message-count')).toHaveTextContent('1')
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Visible hello')
+    })
+
+    expect(parseCallSignalText(String(rejectPayload?.text))).toEqual(
+      expect.objectContaining({
+        version: 1,
+        kind: 'reject',
+        chatId: 'chat-1',
+        callId: 'call-incoming',
+        reason: 'declined',
+      }),
+    )
   })
 
   test('updates shell spotlight coordinates from pointer movement', () => {

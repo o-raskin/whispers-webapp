@@ -37,6 +37,56 @@ export interface ChatThread {
   messages: ChatMessage[]
 }
 
+export type CallSignalKind = 'offer' | 'answer' | 'ice-candidate' | 'reject' | 'end'
+export type CallPhase = 'idle' | 'outgoing' | 'incoming' | 'connecting' | 'active'
+export type CallDirection = 'incoming' | 'outgoing'
+
+interface BaseCallSignalPayload {
+  version: 1
+  chatId: string
+  callId: string
+  kind: CallSignalKind
+}
+
+export interface CallOfferSignal extends BaseCallSignalPayload {
+  kind: 'offer'
+  sdp: string
+}
+
+export interface CallAnswerSignal extends BaseCallSignalPayload {
+  kind: 'answer'
+  sdp: string
+}
+
+export interface CallIceCandidateSignal extends BaseCallSignalPayload {
+  kind: 'ice-candidate'
+  candidate: RTCIceCandidateInit
+}
+
+export interface CallRejectSignal extends BaseCallSignalPayload {
+  kind: 'reject'
+  reason?: string
+}
+
+export interface CallEndSignal extends BaseCallSignalPayload {
+  kind: 'end'
+}
+
+export type CallSignalPayload =
+  | CallOfferSignal
+  | CallAnswerSignal
+  | CallIceCandidateSignal
+  | CallRejectSignal
+  | CallEndSignal
+
+export interface ActiveCallState {
+  chatId: string
+  callId: string
+  participant: string
+  direction: CallDirection
+  phase: Exclude<CallPhase, 'idle'>
+}
+
 export interface SendMessageCommand {
   type: 'MESSAGE'
   chatId: string
