@@ -66,6 +66,59 @@ function createCallId() {
   return `call-${Date.now()}`
 }
 
+function getAudioInputAvailabilityError() {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'Audio calling requires HTTPS or localhost. Open the app over a secure origin and try again.'
+  }
+
+  if (typeof navigator === 'undefined' || !navigator.mediaDevices) {
+    return 'Audio calling is unavailable because this page does not have access to media devices.'
+  }
+
+  if (typeof navigator.mediaDevices.getUserMedia !== 'function') {
+    return 'Audio calling is not supported in this browser.'
+  }
+
+  return null
+}
+
+function toAudioStreamErrorMessage(error: unknown) {
+  if (!(error instanceof DOMException)) {
+    return null
+  }
+
+  switch (error.name) {
+    case 'NotAllowedError':
+    case 'SecurityError':
+      return 'Microphone access was blocked. Allow microphone access and try again.'
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'No microphone was found on this device.'
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'Your microphone is busy or unavailable right now.'
+    case 'OverconstrainedError':
+      return 'No compatible microphone input is available.'
+    default:
+      return null
+  }
+}
+
+interface PeerConnectionSession {
+  callId: string
+  chatId: string
+  participant: string
+  peerConnectionId: number
+}
+
+function buildCleanupStackTrace() {
+  try {
+    throw new Error('WebRTC cleanup trace')
+  } catch (error) {
+    return error instanceof Error ? error.stack ?? 'stack unavailable' : 'stack unavailable'
+  }
+}
+
 export function App() {
   const socketRef = useRef<WebSocket | null>(null)
   const pingTimerRef = useRef<number | null>(null)
@@ -77,12 +130,20 @@ export function App() {
   const threadsRef = useRef<Record<string, ChatThread>>({})
   const readMarkersRef = useRef<Record<string, string>>({})
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
+  const peerConnectionSessionRef = useRef<PeerConnectionSession | null>(null)
+  const peerConnectionSequenceRef = useRef(0)
   const localStreamRef = useRef<MediaStream | null>(null)
   const remoteStreamRef = useRef<MediaStream | null>(null)
   const pendingOfferRef = useRef<RTCSessionDescriptionInit | null>(null)
   const queuedIceCandidatesRef = useRef<RTCIceCandidateInit[]>([])
   const remoteDescriptionReadyRef = useRef(false)
   const activeCallStateRef = useRef<ActiveCallState | null>(null)
+  const pendingCallInitializationRef = useRef<{
+    callId: string
+    chatId: string
+    participant: string
+    direction: ActiveCallState['direction']
+  } | null>(null)
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_WS_URL)
   const [userId, setUserId] = useState('')
@@ -137,6 +198,55 @@ export function App() {
       typingTimerRef.current = null
     }
   }, [])
+
+  const logWebRtc = useCallback((label: string, details?: unknown) => {
+    if (typeof details === 'undefined') {
+      console.log(label)
+      setEventLog((current) => appendLog(current, label))
+      return
+    }
+
+    console.log(label, details)
+
+    let detailsText = ''
+
+    if (typeof details === 'string') {
+      detailsText = details
+    } else if (
+      typeof details === 'number' ||
+      typeof details === 'boolean' ||
+      details === null
+    ) {
+      detailsText = String(details)
+    } else if (details instanceof Error) {
+      detailsText = details.message
+    } else {
+      try {
+        detailsText = JSON.stringify(details)
+      } catch {
+        detailsText = String(details)
+      }
+    }
+
+    setEventLog((current) =>
+      appendLog(current, detailsText ? `${label}: ${detailsText}` : label),
+    )
+  }, [])
+
+  const logCallSession = useCallback((
+    label: string,
+    details?: Record<string, unknown>,
+  ) => {
+    const session = peerConnectionSessionRef.current
+
+    logWebRtc(label, {
+      callId: session?.callId ?? pendingCallInitializationRef.current?.callId ?? null,
+      chatId: session?.chatId ?? pendingCallInitializationRef.current?.chatId ?? null,
+      participant: session?.participant ?? pendingCallInitializationRef.current?.participant ?? null,
+      peerConnectionId: session?.peerConnectionId ?? null,
+      ...details,
+    })
+  }, [logWebRtc])
 
   const sendTypingCommand = useCallback((
     payload: TypingCommand,
@@ -249,20 +359,39 @@ export function App() {
     return true
   }, [])
 
-  const resetCallSession = useCallback(() => {
+  const resetCallSession = useCallback((reason = 'unspecified') => {
     const peerConnection = peerConnectionRef.current
+    const session = peerConnectionSessionRef.current
+    const stackTrace = buildCleanupStackTrace()
 
     if (peerConnection) {
+      logWebRtc('WebRTC peer connection closing', {
+        ...(session ?? {}),
+        reason,
+        stackTrace,
+      })
       peerConnection.onicecandidate = null
+      peerConnection.onicecandidateerror = null
+      peerConnection.oniceconnectionstatechange = null
+      peerConnection.onicegatheringstatechange = null
       peerConnection.ontrack = null
       peerConnection.onconnectionstatechange = null
+      peerConnection.onsignalingstatechange = null
       peerConnection.close()
       peerConnectionRef.current = null
     }
 
+    logWebRtc('WebRTC call cleanup executed', {
+      ...(session ?? {}),
+      reason,
+      stackTrace,
+    })
+
     localStreamRef.current?.getTracks().forEach((track) => track.stop())
     remoteStreamRef.current?.getTracks().forEach((track) => track.stop())
 
+    peerConnectionSessionRef.current = null
+    pendingCallInitializationRef.current = null
     localStreamRef.current = null
     remoteStreamRef.current = null
     pendingOfferRef.current = null
@@ -272,25 +401,33 @@ export function App() {
     setLocalCallStream(null)
     setRemoteCallStream(null)
     setActiveCallState(null)
-  }, [])
+  }, [logWebRtc])
 
   const requestLocalAudioStream = useCallback(async () => {
     if (localStreamRef.current) {
       return localStreamRef.current
     }
 
-    if (
-      typeof navigator === 'undefined' ||
-      !navigator.mediaDevices ||
-      typeof navigator.mediaDevices.getUserMedia !== 'function'
-    ) {
-      throw new Error('Audio calling is not supported in this browser.')
+    const availabilityError = getAudioInputAvailabilityError()
+
+    if (availabilityError) {
+      throw new Error(availabilityError)
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    localStreamRef.current = stream
-    setLocalCallStream(stream)
-    return stream
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      localStreamRef.current = stream
+      setLocalCallStream(stream)
+      return stream
+    } catch (error) {
+      const message = toAudioStreamErrorMessage(error)
+
+      if (message) {
+        throw new Error(message)
+      }
+
+      throw error
+    }
   }, [])
 
   const attachLocalAudioTracks = useCallback((peerConnection: RTCPeerConnection, stream: MediaStream) => {
@@ -308,10 +445,11 @@ export function App() {
     }
   }, [])
 
-  const flushQueuedIceCandidates = useCallback(async () => {
-    const peerConnection = peerConnectionRef.current
-
-    if (!peerConnection || queuedIceCandidatesRef.current.length === 0) {
+  const flushQueuedIceCandidates = useCallback(async (
+    peerConnection: RTCPeerConnection,
+    session: PeerConnectionSession,
+  ) => {
+    if (queuedIceCandidatesRef.current.length === 0) {
       return
     }
 
@@ -322,14 +460,25 @@ export function App() {
       queuedCandidates.map(async (candidate) => {
         try {
           await peerConnection.addIceCandidate(candidate)
+          logWebRtc('WebRTC addIceCandidate success', {
+            ...session,
+            candidate,
+            queued: true,
+          })
         } catch (error) {
           const message =
             error instanceof Error ? error.message : 'Cannot apply remote ICE candidate.'
+          logWebRtc('WebRTC addIceCandidate failure', {
+            ...session,
+            candidate,
+            message,
+            queued: true,
+          })
           setEventLog((current) => appendLog(current, message))
         }
       }),
     )
-  }, [])
+  }, [logWebRtc])
 
   const createPeerConnection = useCallback((
     chatId: string,
@@ -340,12 +489,45 @@ export function App() {
       throw new Error('WebRTC audio calling is not supported in this browser.')
     }
 
-    if (peerConnectionRef.current) {
-      return peerConnectionRef.current
+    const existingPeerConnection = peerConnectionRef.current
+    const existingSession = peerConnectionSessionRef.current
+
+    if (existingPeerConnection && existingSession) {
+      if (existingSession.callId === callId && existingSession.chatId === chatId) {
+        logWebRtc('WebRTC peer connection reused', existingSession)
+        return existingPeerConnection
+      }
+
+      logWebRtc('WebRTC duplicate peer connection blocked', {
+        requestedCallId: callId,
+        requestedChatId: chatId,
+        requestedParticipant: participant,
+        existingSession,
+      })
+      throw new Error('Another audio call session is already active.')
     }
 
-    const peerConnection = new RTCPeerConnection({
+    const rtcConfig: RTCConfiguration = {
       iceServers: DEFAULT_WEBRTC_ICE_SERVERS,
+      // iceTransportPolicy: 'relay',
+    }
+
+    console.log('RTC config full', rtcConfig)
+
+    const peerConnection = new RTCPeerConnection(rtcConfig)
+    const session: PeerConnectionSession = {
+      callId,
+      chatId,
+      participant,
+      peerConnectionId: ++peerConnectionSequenceRef.current,
+    }
+
+    peerConnectionRef.current = peerConnection
+    peerConnectionSessionRef.current = session
+
+    logWebRtc('WebRTC peer connection created', {
+      ...session,
+      iceServers: DEFAULT_WEBRTC_ICE_SERVERS.map((server) => server.urls),
     })
 
     remoteDescriptionReadyRef.current = false
@@ -354,9 +536,24 @@ export function App() {
     setRemoteCallStream(remoteStreamRef.current)
 
     peerConnection.onicecandidate = (event) => {
+      if (peerConnectionRef.current !== peerConnection || peerConnectionSessionRef.current?.callId !== callId) {
+        logWebRtc('WebRTC stale icecandidate ignored', session)
+        return
+      }
+
+      logWebRtc('WebRTC icecandidate', {
+        ...session,
+        candidate: event.candidate?.candidate ?? '[gathering complete]',
+      })
+
       if (!event.candidate) {
         return
       }
+
+      logWebRtc('WebRTC local candidate send', {
+        ...session,
+        candidate: event.candidate.toJSON(),
+      })
 
       void sendCallSignal(
         {
@@ -370,7 +567,51 @@ export function App() {
       )
     }
 
+    peerConnection.onicecandidateerror = (event) => {
+      logWebRtc('WebRTC icecandidateerror', {
+        ...session,
+        address: event.address,
+        port: event.port,
+        url: event.url,
+        errorCode: event.errorCode,
+        errorText: event.errorText,
+      })
+    }
+
+    peerConnection.oniceconnectionstatechange = () => {
+      logWebRtc('WebRTC iceConnectionState', {
+        ...session,
+        iceConnectionState: peerConnection.iceConnectionState,
+      })
+    }
+
+    peerConnection.onsignalingstatechange = () => {
+      logWebRtc('WebRTC signalingState', {
+        ...session,
+        signalingState: peerConnection.signalingState,
+      })
+    }
+
+    peerConnection.onicegatheringstatechange = () => {
+      logWebRtc('WebRTC iceGatheringState', {
+        ...session,
+        iceGatheringState: peerConnection.iceGatheringState,
+      })
+    }
+
     peerConnection.ontrack = (event) => {
+      if (peerConnectionRef.current !== peerConnection || peerConnectionSessionRef.current?.callId !== callId) {
+        logWebRtc('WebRTC stale ontrack ignored', session)
+        return
+      }
+
+      logWebRtc('WebRTC ontrack', {
+        ...session,
+        trackId: event.track.id,
+        kind: event.track.kind,
+        streams: event.streams.map((stream) => stream.id),
+      })
+
       if (event.streams[0]) {
         remoteStreamRef.current = event.streams[0]
         setRemoteCallStream(event.streams[0])
@@ -388,6 +629,10 @@ export function App() {
 
     peerConnection.onconnectionstatechange = () => {
       const { connectionState } = peerConnection
+      logWebRtc('WebRTC connectionState', {
+        ...session,
+        connectionState,
+      })
 
       if (connectionState === 'connected') {
         setActiveCallState((current) =>
@@ -403,18 +648,20 @@ export function App() {
         connectionState === 'failed' ||
         connectionState === 'closed'
       ) {
-        if (activeCallStateRef.current?.callId === callId) {
+        if (
+          peerConnectionRef.current === peerConnection &&
+          activeCallStateRef.current?.callId === callId
+        ) {
           setEventLog((current) =>
             appendLog(current, `Call with ${participant} ended (${connectionState}).`),
           )
-          resetCallSession()
+          resetCallSession(`connection-state:${connectionState}`)
         }
       }
     }
 
-    peerConnectionRef.current = peerConnection
     return peerConnection
-  }, [resetCallSession, sendCallSignal])
+  }, [logWebRtc, resetCallSession, sendCallSignal])
 
   const endActiveCall = useCallback((options?: { notifyRemote?: boolean }) => {
     const activeCall = activeCallStateRef.current
@@ -431,7 +678,7 @@ export function App() {
       )
     }
 
-    resetCallSession()
+    resetCallSession(options?.notifyRemote ? 'explicit-hangup' : 'local-call-end')
   }, [resetCallSession, sendCallSignal])
 
   const rejectIncomingCall = useCallback((reason = 'declined') => {
@@ -452,7 +699,7 @@ export function App() {
       { log: false },
     )
 
-    resetCallSession()
+    resetCallSession(`incoming-call-rejected:${reason}`)
   }, [resetCallSession, sendCallSignal])
 
   const handleStartCall = useCallback(async () => {
@@ -466,11 +713,22 @@ export function App() {
       return
     }
 
-    if (activeCallStateRef.current) {
+    if (activeCallStateRef.current || pendingCallInitializationRef.current) {
+      logCallSession('WebRTC start call ignored', {
+        reason: activeCallStateRef.current ? 'active-call-exists' : 'call-initialization-in-progress',
+      })
       return
     }
 
     const callId = createCallId()
+    const nextInitialization = {
+      callId,
+      chatId: selectedThread.chatId,
+      participant: selectedThread.participant,
+      direction: 'outgoing' as const,
+    }
+
+    pendingCallInitializationRef.current = nextInitialization
 
     try {
       const stream = await requestLocalAudioStream()
@@ -490,11 +748,18 @@ export function App() {
         phase: 'outgoing',
       })
 
+      logWebRtc('WebRTC offer creation started', {
+        ...peerConnectionSessionRef.current,
+      })
       const offer = await peerConnection.createOffer({
         offerToReceiveAudio: true,
       })
 
       await peerConnection.setLocalDescription(offer)
+      logWebRtc('WebRTC local offer applied', {
+        ...peerConnectionSessionRef.current,
+        sdp: offer.sdp ?? '',
+      })
 
       void sendCallSignal({
         version: 1,
@@ -507,11 +772,19 @@ export function App() {
       const message =
         error instanceof Error ? error.message : 'Cannot start audio call right now.'
       setEventLog((current) => appendLog(current, message))
-      resetCallSession()
+      resetCallSession('start-call-failed')
+      return
+    } finally {
+      if (pendingCallInitializationRef.current?.callId === callId) {
+        pendingCallInitializationRef.current = null
+      }
     }
   }, [
     attachLocalAudioTracks,
     createPeerConnection,
+    logCallSession,
+    logWebRtc,
+    pendingCallInitializationRef,
     requestLocalAudioStream,
     resetCallSession,
     selectedThread,
@@ -521,8 +794,20 @@ export function App() {
   const handleAcceptCall = useCallback(async () => {
     const activeCall = activeCallStateRef.current
 
-    if (!activeCall || activeCall.phase !== 'incoming' || !pendingOfferRef.current) {
+    if (
+      !activeCall ||
+      activeCall.phase !== 'incoming' ||
+      !pendingOfferRef.current ||
+      pendingCallInitializationRef.current
+    ) {
       return
+    }
+
+    pendingCallInitializationRef.current = {
+      callId: activeCall.callId,
+      chatId: activeCall.chatId,
+      participant: activeCall.participant,
+      direction: 'incoming',
     }
 
     try {
@@ -534,12 +819,19 @@ export function App() {
       )
 
       attachLocalAudioTracks(peerConnection, stream)
+      logWebRtc('WebRTC remote offer apply started', peerConnectionSessionRef.current ?? undefined)
       await peerConnection.setRemoteDescription(pendingOfferRef.current)
       remoteDescriptionReadyRef.current = true
-      await flushQueuedIceCandidates()
+      logWebRtc('WebRTC remote offer applied', peerConnectionSessionRef.current ?? undefined)
+      await flushQueuedIceCandidates(peerConnection, peerConnectionSessionRef.current!)
 
+      logWebRtc('WebRTC answer creation started', peerConnectionSessionRef.current ?? undefined)
       const answer = await peerConnection.createAnswer()
       await peerConnection.setLocalDescription(answer)
+      logWebRtc('WebRTC local answer applied', {
+        ...peerConnectionSessionRef.current,
+        sdp: answer.sdp ?? '',
+      })
       pendingOfferRef.current = null
 
       setActiveCallState({
@@ -559,11 +851,18 @@ export function App() {
         error instanceof Error ? error.message : 'Cannot accept audio call right now.'
       setEventLog((current) => appendLog(current, message))
       rejectIncomingCall('media-unavailable')
+      return
+    } finally {
+      if (pendingCallInitializationRef.current?.callId === activeCall.callId) {
+        pendingCallInitializationRef.current = null
+      }
     }
   }, [
     attachLocalAudioTracks,
     createPeerConnection,
     flushQueuedIceCandidates,
+    logWebRtc,
+    pendingCallInitializationRef,
     rejectIncomingCall,
     requestLocalAudioStream,
     sendCallSignal,
@@ -642,9 +941,19 @@ export function App() {
   }, [])
 
   const handleSelectChat = useCallback((chatId: string) => {
+    const activeCall = activeCallStateRef.current
+
+    if (activeCall && activeCall.chatId !== chatId) {
+      logCallSession('WebRTC intentional call replacement requested', {
+        nextChatId: chatId,
+        previousChatId: activeCall.chatId,
+      })
+      endActiveCall({ notifyRemote: true })
+    }
+
     setSelectedChatId(chatId)
     setIsHistoryLoading(true)
-  }, [])
+  }, [endActiveCall, logCallSession])
 
   const hydrateChatSummaries = useCallback(async (
     currentUserId: string,
@@ -836,6 +1145,11 @@ export function App() {
       }
       queuedIceCandidatesRef.current = []
       remoteDescriptionReadyRef.current = false
+      logWebRtc('WebRTC remote offer received', {
+        chatId: signal.chatId,
+        callId: signal.callId,
+        participant,
+      })
 
       if (selectedChatIdRef.current !== signal.chatId) {
         setSelectedChatId(signal.chatId)
@@ -870,17 +1184,33 @@ export function App() {
     switch (signal.kind) {
       case 'answer': {
         const peerConnection = peerConnectionRef.current
+        const session = peerConnectionSessionRef.current
 
-        if (!peerConnection) {
+        if (
+          !peerConnection ||
+          !session ||
+          session.callId !== signal.callId ||
+          session.chatId !== signal.chatId
+        ) {
+          logWebRtc('WebRTC answer ignored for non-current session', {
+            signalCallId: signal.callId,
+            signalChatId: signal.chatId,
+            session,
+          })
           return
         }
 
+        logWebRtc('WebRTC answer apply started', {
+          ...session,
+          sdp: signal.sdp,
+        })
         await peerConnection.setRemoteDescription({
           type: 'answer',
           sdp: signal.sdp,
         })
         remoteDescriptionReadyRef.current = true
-        await flushQueuedIceCandidates()
+        logWebRtc('WebRTC answer applied', session)
+        await flushQueuedIceCandidates(peerConnection, session)
         setActiveCallState({
           ...activeCall,
           phase: 'connecting',
@@ -889,17 +1219,53 @@ export function App() {
       }
       case 'ice-candidate': {
         const peerConnection = peerConnectionRef.current
+        const session = peerConnectionSessionRef.current
+
+        if (
+          !session ||
+          session.callId !== signal.callId ||
+          session.chatId !== signal.chatId
+        ) {
+          logWebRtc('WebRTC remote candidate ignored for non-current session', {
+            signalCallId: signal.callId,
+            signalChatId: signal.chatId,
+            session,
+            candidate: signal.candidate,
+          })
+          return
+        }
+
+        logWebRtc('WebRTC remote candidate received', {
+          ...session,
+          candidate: signal.candidate,
+        })
 
         if (!peerConnection || !remoteDescriptionReadyRef.current) {
           queuedIceCandidatesRef.current.push(signal.candidate)
+          logWebRtc('WebRTC remote candidate queued', {
+            ...session,
+            candidate: signal.candidate,
+            queueLength: queuedIceCandidatesRef.current.length,
+          })
           return
         }
 
         try {
           await peerConnection.addIceCandidate(signal.candidate)
+          logWebRtc('WebRTC addIceCandidate success', {
+            ...session,
+            candidate: signal.candidate,
+            queued: false,
+          })
         } catch (error) {
           const message =
             error instanceof Error ? error.message : 'Cannot apply remote ICE candidate.'
+          logWebRtc('WebRTC addIceCandidate failure', {
+            ...session,
+            candidate: signal.candidate,
+            message,
+            queued: false,
+          })
           setEventLog((current) => appendLog(current, message))
         }
         return
@@ -911,16 +1277,16 @@ export function App() {
             `Call rejected by ${participant}${signal.reason ? ` (${signal.reason})` : '.'}`,
           ),
         )
-        resetCallSession()
+        resetCallSession('remote-call-rejected')
         return
       case 'end':
         setEventLog((current) => appendLog(current, `Call ended by ${participant}.`))
-        resetCallSession()
+        resetCallSession('remote-call-ended')
         return
       default:
         return
     }
-  }, [flushQueuedIceCandidates, loadHistory, resetCallSession, sendCallSignal])
+  }, [flushQueuedIceCandidates, loadHistory, logWebRtc, resetCallSession, sendCallSignal])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -970,31 +1336,35 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    logWebRtc('WebRTC component cleanup effect mounted')
+
     return () => {
+      logWebRtc('WebRTC component cleanup effect running', {
+        selectedChatId: selectedChatIdRef.current,
+        activeCall: activeCallStateRef.current,
+      })
       if (pingTimerRef.current !== null) {
         window.clearInterval(pingTimerRef.current)
       }
 
       clearTypingRefreshTimer()
-      resetCallSession()
+      resetCallSession('component-unmount')
 
       socketRef.current?.close()
     }
-  }, [clearTypingRefreshTimer, resetCallSession])
+  }, [clearTypingRefreshTimer, logWebRtc, resetCallSession])
 
   useEffect(() => {
-    const activeCall = activeCallStateRef.current
+    logWebRtc('WebRTC selected chat changed', {
+      selectedChatId,
+      activeCall: activeCallStateRef.current,
+      pendingInitialization: pendingCallInitializationRef.current,
+    })
+  }, [logWebRtc, selectedChatId])
 
-    if (!activeCall) {
-      return
-    }
-
-    if (selectedChatId === activeCall.chatId) {
-      return
-    }
-
-    endActiveCall({ notifyRemote: true })
-  }, [endActiveCall, selectedChatId])
+  useEffect(() => {
+    logWebRtc('WebRTC active call state changed', activeCallState)
+  }, [activeCallState, logWebRtc])
 
   useEffect(() => {
     const currentUserId = userId.trim()
@@ -1353,6 +1723,10 @@ export function App() {
     }
 
     socket.onclose = () => {
+      logWebRtc('WebRTC socket onclose cleanup', {
+        selectedChatId: selectedChatIdRef.current,
+        activeCall: activeCallStateRef.current,
+      })
       setStatus('disconnected')
       setIsBootstrapping(false)
       setIsHistoryLoading(false)
@@ -1363,7 +1737,7 @@ export function App() {
       setThreads({})
       setSelectedChatId(null)
       setReadMarkers({})
-      resetCallSession()
+      resetCallSession('socket-closed')
       clearTypingRefreshTimer()
       activeTypingChatIdRef.current = null
       socketRef.current = null

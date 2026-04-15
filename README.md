@@ -1,73 +1,61 @@
-# React + TypeScript + Vite
+# Whispers Webapp
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + TypeScript + Vite frontend for the Whispers realtime chat UI.
 
-Currently, two official plugins are available:
+## Local development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Install dependencies and start the app:
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The dev server now starts over HTTPS so browser microphone APIs remain available for audio calling.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Backend proxy
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+In local development, the frontend connects to the same origin by default:
+
+- WebSocket: `/ws/user`
+- REST: `/chats`, `/messages`, `/users`
+
+Vite proxies those requests to the backend origin configured by `VITE_BACKEND_ORIGIN`.
+
+Default backend origin:
+
+```bash
+http://localhost:8080
+```
+
+Override it when needed:
+
+```bash
+VITE_BACKEND_ORIGIN=http://192.168.0.25:8080 npm run dev
+```
+
+## HTTPS certificate
+
+`npm run dev` generates a local self-signed certificate in `.devcert/` using `openssl`.
+
+Default certificate hosts:
+
+- `localhost`
+- `127.0.0.1`
+
+For LAN or mobile testing, include the machine IP in the cert before starting the dev server:
+
+```bash
+VITE_DEV_CERT_HOSTS=localhost,127.0.0.1,192.168.0.10 npm run dev
+```
+
+If your device or browser warns about the certificate, trust the generated cert locally before testing audio calls.
+
+## Validation
+
+Core checks from the repo root:
+
+```bash
+npm run lint
+npm run test:run
 ```

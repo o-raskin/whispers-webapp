@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
-import { PRESENCE_PING_INTERVAL_MS } from '../shared/config/backend'
+import { DEFAULT_WS_URL, PRESENCE_PING_INTERVAL_MS } from '../shared/config/backend'
 import { buildCallSignalText, parseCallSignalText } from '../shared/utils/callSignals'
 
 const apiMocks = vi.hoisted(() => ({
@@ -336,6 +336,22 @@ class MockRTCPeerConnection {
   }
 }
 
+function createDeferredPromise<T>() {
+  let resolvePromise!: (value: T | PromiseLike<T>) => void
+  let rejectPromise!: (reason?: unknown) => void
+
+  const promise = new Promise<T>((resolve, reject) => {
+    resolvePromise = resolve
+    rejectPromise = reject
+  })
+
+  return {
+    promise,
+    resolve: resolvePromise,
+    reject: rejectPromise,
+  }
+}
+
 describe('App', () => {
   beforeEach(() => {
     MockWebSocket.instances = []
@@ -349,6 +365,10 @@ describe('App', () => {
     vi.stubGlobal('crypto', {
       randomUUID: () => 'call-1',
     } as unknown as Crypto)
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: true,
+    })
     Object.defineProperty(navigator, 'mediaDevices', {
       configurable: true,
       value: {
@@ -388,7 +408,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'connect' }))
 
     const socket = MockWebSocket.instances[0]
-    expect(socket.url).toBe('ws://192.168.0.10:8080/ws/user?userId=alice')
+    expect(socket.url).toBe(`${DEFAULT_WS_URL}?userId=alice`)
 
     await act(async () => {
       socket.emitOpen()
@@ -396,11 +416,11 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(apiMocks.mockFetchChats).toHaveBeenCalledWith(
-        'ws://192.168.0.10:8080/ws/user',
+        DEFAULT_WS_URL,
         'alice',
       )
       expect(apiMocks.mockFetchUsers).toHaveBeenCalledWith(
-        'ws://192.168.0.10:8080/ws/user',
+        DEFAULT_WS_URL,
         'alice',
       )
     })
@@ -413,7 +433,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(apiMocks.mockFetchMessages).toHaveBeenCalledWith(
-        'ws://192.168.0.10:8080/ws/user',
+        DEFAULT_WS_URL,
         'alice',
         'chat-1',
       )
@@ -550,7 +570,7 @@ describe('App', () => {
 
     await waitFor(() => {
       expect(apiMocks.mockCreateChat).toHaveBeenCalledWith(
-        'ws://192.168.0.10:8080/ws/user',
+        DEFAULT_WS_URL,
         'alice',
         'carol',
       )
@@ -579,7 +599,7 @@ describe('App', () => {
       'Server URL and user ID are required.',
     )
 
-    await user.type(screen.getByLabelText('welcome server url'), 'ws://192.168.0.10:8080/ws/user')
+    await user.type(screen.getByLabelText('welcome server url'), DEFAULT_WS_URL)
     await user.type(screen.getByLabelText('welcome user id'), 'alice')
     await user.click(screen.getByRole('button', { name: 'connect' }))
 
@@ -720,6 +740,145 @@ describe('App', () => {
         sdp: 'mock-offer-sdp',
       }),
     )
+  })
+
+  test('creates only one peer connection when call start is triggered twice during media setup', async () => {
+    const user = userEvent.setup()
+    const deferredStream = createDeferredPromise<MockMediaStream>()
+    const getUserMediaMock = vi.fn(() => deferredStream.promise)
+
+    vi.stubGlobal('crypto', {
+      randomUUID: vi
+        .fn()
+        .mockReturnValueOnce('call-1')
+        .mockReturnValueOnce('call-2'),
+    } as unknown as Crypto)
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: getUserMediaMock,
+      },
+    })
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: 'Ready for a call',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText('welcome user id'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'connect' }))
+
+    const socket = MockWebSocket.instances[0]
+    await act(async () => {
+      socket.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('participant')).toHaveTextContent('bob')
+    })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'start audio call' }))
+      fireEvent.click(screen.getByRole('button', { name: 'start audio call' }))
+    })
+
+    expect(getUserMediaMock).toHaveBeenCalledTimes(1)
+    expect(MockRTCPeerConnection.instances).toHaveLength(0)
+
+    await act(async () => {
+      deferredStream.resolve(new MockMediaStream())
+      await deferredStream.promise
+    })
+
+    await waitFor(() => {
+      expect(MockRTCPeerConnection.instances).toHaveLength(1)
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('outgoing')
+    })
+
+    const offerSignals = apiMocks.mockSendWebSocketCommand.mock.calls
+      .map(([, payload]) => payload)
+      .filter(
+        (payload): payload is { type: string; chatId: string; text: string } =>
+          typeof payload === 'object' &&
+          payload !== null &&
+          'type' in payload &&
+          payload.type === 'MESSAGE' &&
+          'chatId' in payload &&
+          typeof payload.chatId === 'string' &&
+          'text' in payload &&
+          typeof payload.text === 'string' &&
+          parseCallSignalText(payload.text)?.kind === 'offer',
+      )
+
+    expect(offerSignals).toHaveLength(1)
+    expect(parseCallSignalText(offerSignals[0].text)).toEqual(
+      expect.objectContaining({
+        callId: 'call-1',
+      }),
+    )
+  })
+
+  test('shows a secure-origin error when audio call is started from an insecure page', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        senderUserId: 'bob',
+        text: 'Ready for a call',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
+
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: false,
+    })
+
+    render(<App />)
+
+    await user.type(screen.getByLabelText('welcome user id'), 'alice')
+    await user.click(screen.getByRole('button', { name: 'connect' }))
+
+    const socket = MockWebSocket.instances[0]
+    await act(async () => {
+      socket.emitOpen()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('participant')).toHaveTextContent('bob')
+    })
+
+    await user.click(screen.getByRole('button', { name: 'start audio call' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('call-phase')).toHaveTextContent('idle')
+      expect(screen.getByTestId('event-log')).toHaveTextContent(
+        'Audio calling requires HTTPS or localhost. Open the app over a secure origin and try again.',
+      )
+    })
   })
 
   test('keeps hidden call signaling out of chat history and unread state', async () => {
