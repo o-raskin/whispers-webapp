@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.gitignore
+Dockerfile
+npm-debug.log
+.devcert
+.agents
+.continue
+.vscode
+coverage
+*.local
+*.log
+README.md
+docs

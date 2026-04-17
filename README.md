@@ -32,6 +32,27 @@ npm run dev
 
 The dev server binds to `0.0.0.0` and runs over HTTPS so browser microphone APIs remain available for audio calling.
 
+## Docker
+
+The repo includes a production multi-stage Docker build:
+
+- Node.js build stage for `npm ci` and `npm run build`
+- nginx runtime stage for serving the generated `dist/` assets
+
+Build the image from the repo root:
+
+```bash
+docker build -t whispers-webapp:latest .
+```
+
+Run it locally:
+
+```bash
+docker run --rm -p 8080:80 whispers-webapp:latest
+```
+
+The container serves the Vite production build over nginx on port `80`. The bundled `nginx.conf` also includes SPA fallback routing to `index.html` so direct navigation to frontend routes continues to work.
+
 ## Backend Integration
 
 The app defaults to the current browser origin for its WebSocket entrypoint:
