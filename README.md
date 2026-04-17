@@ -39,6 +39,8 @@ The app defaults to the current browser origin for its WebSocket entrypoint:
 - WebSocket: `/ws/user`
 - REST: `/chats`, `/messages`, `/users`
 
+WebRTC 1-on-1 calls also default their ICE host to the current app hostname, which keeps local browser-to-browser calling aligned with the machine serving the app instead of a hard-coded LAN address.
+
 In local development and preview, Vite proxies those routes to the backend origin configured by `VITE_BACKEND_ORIGIN`.
 
 Default backend origin:
@@ -54,6 +56,15 @@ VITE_BACKEND_ORIGIN=http://192.168.0.25:8080 npm run dev
 ```
 
 `VITE_BACKEND_ORIGIN` may be provided as either an HTTP(S) origin or a WS(S) URL. The Vite config normalizes WebSocket values to the matching HTTP origin for proxying.
+
+Optional WebRTC overrides:
+
+- `VITE_WEBRTC_STUN_URLS`: comma-separated STUN URLs
+- `VITE_WEBRTC_TURN_URLS`: comma-separated TURN URLs
+- `VITE_WEBRTC_TURN_USERNAME`: TURN username override
+- `VITE_WEBRTC_TURN_CREDENTIAL`: TURN credential override
+
+If these are unset, the app uses `stun:<current-host>:3478` plus `turn:<current-host>:3478` defaults for local coturn-style setups, and the peer connection is allowed to use direct candidates instead of requiring TURN relay only.
 
 ## HTTPS Development Certificate
 

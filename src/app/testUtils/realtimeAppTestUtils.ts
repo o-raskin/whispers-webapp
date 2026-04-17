@@ -69,6 +69,7 @@ export class MockMediaStream {
 export class MockRTCPeerConnection {
   static instances: MockRTCPeerConnection[] = []
 
+  readonly config?: RTCConfiguration
   connectionState: RTCPeerConnectionState = 'new'
   localDescription: RTCSessionDescriptionInit | null = null
   remoteDescription: RTCSessionDescriptionInit | null = null
@@ -81,8 +82,8 @@ export class MockRTCPeerConnection {
   onconnectionstatechange: (() => void) | null = null
   private readonly senders: Array<{ track: MockMediaStreamTrack | null }> = []
 
-  constructor(_config?: RTCConfiguration) {
-    void _config
+  constructor(config?: RTCConfiguration) {
+    this.config = config
     MockRTCPeerConnection.instances.push(this)
   }
 

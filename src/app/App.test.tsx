@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from './App'
-import { DEFAULT_WS_URL, PRESENCE_PING_INTERVAL_MS } from '../shared/config/backend'
+import {
+  DEFAULT_WS_URL,
+  getWebRtcPeerConnectionConfig,
+  PRESENCE_PING_INTERVAL_MS,
+} from '../shared/config/backend'
 import { buildCallSignalText, parseCallSignalText } from '../shared/utils/callSignals'
 import {
   createDeferredPromise,
@@ -528,6 +532,11 @@ describe('App', () => {
       expect(screen.getByTestId('call-phase')).toHaveTextContent('outgoing')
       expect(screen.getByTestId('local-stream')).toHaveTextContent('yes')
     })
+
+    expect(MockRTCPeerConnection.instances[0]?.config).toEqual(
+      getWebRtcPeerConnectionConfig(),
+    )
+    expect(MockRTCPeerConnection.instances[0]?.config).not.toHaveProperty('iceTransportPolicy')
 
     const offerPayload = apiMocks.mockSendWebSocketCommand.mock.calls
       .map(([, payload]) => payload)

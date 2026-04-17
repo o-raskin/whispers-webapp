@@ -8,7 +8,7 @@ import {
   type SetStateAction,
 } from 'react'
 import { sendWebSocketCommand } from '../../shared/api/chatApi'
-import { DEFAULT_WEBRTC_ICE_SERVERS } from '../../shared/config/backend'
+import { getWebRtcIceServers, getWebRtcPeerConnectionConfig } from '../../shared/config/backend'
 import type {
   ActiveCallState,
   CallSignalPayload,
@@ -305,10 +305,7 @@ export function useCallSession({
       throw new Error('Another audio call session is already active.')
     }
 
-    const peerConnection = new RTCPeerConnection({
-      iceServers: DEFAULT_WEBRTC_ICE_SERVERS,
-      iceTransportPolicy: 'relay',
-    })
+    const peerConnection = new RTCPeerConnection(getWebRtcPeerConnectionConfig())
     const session: PeerConnectionSession = {
       callId,
       chatId,
@@ -321,7 +318,7 @@ export function useCallSession({
 
     logWebRtc('WebRTC peer connection created', {
       ...session,
-      iceServers: DEFAULT_WEBRTC_ICE_SERVERS.map((server) => server.urls),
+      iceServers: getWebRtcIceServers().map((server) => server.urls),
     })
 
     remoteDescriptionReadyRef.current = false
