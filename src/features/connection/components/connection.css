@@ -1,0 +1,288 @@
+.topbar {
+  padding: 24px 28px 20px;
+  border-bottom: 1px solid var(--border-soft);
+  background:
+    radial-gradient(circle at top left, rgba(123, 169, 255, 0.16), transparent 34%),
+    linear-gradient(180deg, rgba(19, 30, 50, 0.94), rgba(12, 18, 32, 0.86));
+  transition:
+    padding 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 320ms ease;
+}
+
+.topbar-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  transition: gap 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.brand-block {
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+  transition: gap 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background:
+    linear-gradient(135deg, rgba(123, 169, 255, 0.96), rgba(157, 132, 255, 0.9));
+  color: #f7fbff;
+  font-weight: 700;
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.3),
+    0 22px 42px rgba(79, 100, 198, 0.3);
+}
+
+.brand-mark {
+  width: auto;
+  height: auto;
+  min-height: 82px;
+  aspect-ratio: 1 / 1;
+  border-radius: 26px;
+  padding: 0;
+  transition:
+    min-height 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 320ms ease;
+}
+
+.brand-mark-glyph {
+  display: block;
+  width: 54%;
+  height: 54%;
+  overflow: visible;
+  transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1), height 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.brand-mark-glyph text {
+  fill: #f7fbff;
+  font-family: 'Satoshi', 'Avenir Next', 'Segoe UI', sans-serif;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.05em;
+  transition: font-size 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  max-width: 560px;
+  gap: 0.2rem;
+  transition: gap 320ms cubic-bezier(0.22, 1, 0.36, 1), transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.connection-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 1fr) minmax(260px, auto);
+  gap: 16px;
+  align-items: end;
+}
+
+.connection-grid--stacked {
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+
+.field-card,
+.connection-actions {
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03)),
+    radial-gradient(circle at top, rgba(123, 169, 255, 0.07), transparent 70%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    var(--shadow-soft);
+}
+
+.connection-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 260px;
+}
+
+.connection-actions--stacked {
+  min-width: 0;
+  grid-template-columns: 1fr;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 122px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.status-pill.connected {
+  border-color: rgba(88, 229, 198, 0.2);
+  background: rgba(88, 229, 198, 0.1);
+  color: #86f7dc;
+}
+
+.status-pill.connecting {
+  border-color: rgba(255, 211, 112, 0.18);
+  background: rgba(255, 211, 112, 0.1);
+  color: #ffe08c;
+}
+
+.status-pill.disconnected {
+  border-color: rgba(255, 124, 143, 0.18);
+  background: rgba(255, 124, 143, 0.1);
+  color: #ffacb7;
+}
+
+.status-copy {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+@media (max-width: 980px) {
+  .topbar {
+    padding: 28px;
+  }
+}
+
+@media (max-width: 1240px) {
+  .topbar-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .connection-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .connection-actions {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .topbar {
+    padding: clamp(0.875rem, 4vw, 1.125rem);
+    border-bottom: 0;
+    padding-bottom: 16px;
+  }
+
+  .topbar-hero {
+    gap: 1.125rem;
+    margin-bottom: 1.125rem;
+  }
+
+  .brand-block {
+    gap: 12px;
+  }
+
+  .brand-mark {
+    width: 62px;
+    height: 62px;
+    min-height: 62px;
+    flex: 0 0 62px;
+    aspect-ratio: 1 / 1;
+    align-self: center;
+    border-radius: 21px;
+  }
+
+  .brand-mark-glyph {
+    width: 50%;
+    height: 50%;
+  }
+
+  .brand-mark-glyph text {
+    font-size: 30px;
+  }
+
+  .brand-copy {
+    gap: 0;
+  }
+
+  .topbar.is-compact-mobile {
+    padding-top: 12px;
+    padding-bottom: 10px;
+  }
+
+  .topbar.is-compact-mobile .topbar-hero {
+    margin-bottom: 0;
+  }
+
+  .topbar.is-compact-mobile .brand-block {
+    gap: 10px;
+  }
+
+  .topbar.is-compact-mobile .brand-mark {
+    width: 46px;
+    height: 46px;
+    min-height: 46px;
+    flex: 0 0 46px;
+    border-radius: 16px;
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.24),
+      0 12px 24px rgba(79, 100, 198, 0.18);
+  }
+
+  .topbar.is-compact-mobile .brand-mark-glyph {
+    width: 64%;
+    height: 64%;
+  }
+
+  .topbar.is-compact-mobile .brand-mark-glyph text {
+    font-size: 30px;
+  }
+
+  .topbar.is-compact-mobile .brand-copy {
+    justify-content: center;
+    min-height: 46px;
+    gap: 0;
+    transform: none;
+  }
+
+  .topbar.is-compact-mobile .brand-copy h1 {
+    font-size: 1.8rem;
+    line-height: 1;
+    letter-spacing: -0.05em;
+  }
+
+  .connection-actions,
+  .welcome-enter {
+    min-height: 52px;
+  }
+
+  .status-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .connection-grid {
+    gap: 12px;
+  }
+
+  .field-card,
+  .connection-actions {
+    padding: 12px;
+  }
+}

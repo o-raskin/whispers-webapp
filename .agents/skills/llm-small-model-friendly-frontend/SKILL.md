@@ -47,6 +47,12 @@ Avoid:
 - clever abstractions that require broad context
 - feature logic scattered across distant folders
 
+## Boundary with `frontend-file-decomposition`
+
+Use this skill when the task is broader than one file and the goal is clear ownership across a small nearby file set.
+
+If a single oversized file is the problem, prefer `frontend-file-decomposition`.
+
 ---
 
 # Use this skill when

@@ -37,6 +37,12 @@ Avoid:
 - broad rewrites with low value
 - abstractions introduced only to reduce line count
 
+## Boundary with `llm-small-model-friendly-frontend`
+
+Use this skill when the main problem is one oversized file or one screen that needs tactical decomposition.
+
+If the real problem is broader feature structure, ownership, or discoverability across several nearby files, prefer or combine with `llm-small-model-friendly-frontend`.
+
 ---
 
 # Use this skill when

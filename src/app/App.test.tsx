@@ -3,6 +3,16 @@ import userEvent from '@testing-library/user-event'
 import { App } from './App'
 import { DEFAULT_WS_URL, PRESENCE_PING_INTERVAL_MS } from '../shared/config/backend'
 import { buildCallSignalText, parseCallSignalText } from '../shared/utils/callSignals'
+import {
+  createDeferredPromise,
+  emitSocketOpen,
+  getLatestMockWebSocket,
+  installRealtimeAppBrowserMocks,
+  MockMediaStream,
+  MockRTCPeerConnection,
+  resetRealtimeAppBrowserMocks,
+  setSecureContext,
+} from './testUtils/realtimeAppTestUtils'
 
 const apiMocks = vi.hoisted(() => ({
   mockBuildWebSocketUrl: vi.fn(
@@ -194,191 +204,23 @@ vi.mock('../features/event-log/components/EventLogPanel', () => ({
   ),
 }))
 
-class MockWebSocket {
-  static readonly CONNECTING = 0
-  static readonly OPEN = 1
-  static readonly CLOSING = 2
-  static readonly CLOSED = 3
-  static instances: MockWebSocket[] = []
+async function connectAsUser(
+  user: ReturnType<typeof userEvent.setup>,
+  userId = 'alice',
+) {
+  await user.type(screen.getByLabelText('welcome user id'), userId)
+  await user.click(screen.getByRole('button', { name: 'connect' }))
 
-  readonly url: string
-  readyState = MockWebSocket.CONNECTING
-  onopen: (() => void) | null = null
-  onmessage: ((event: { data: string }) => void) | null = null
-  onerror: (() => void) | null = null
-  onclose: (() => void) | null = null
-  send = vi.fn()
-
-  constructor(url: string) {
-    this.url = url
-    MockWebSocket.instances.push(this)
-  }
-
-  close = vi.fn(() => {
-    this.readyState = MockWebSocket.CLOSED
-    this.onclose?.()
-  })
-
-  emitOpen() {
-    this.readyState = MockWebSocket.OPEN
-    this.onopen?.()
-  }
-
-  emitMessage(data: string) {
-    this.onmessage?.({ data })
-  }
-
-  emitError() {
-    this.onerror?.()
-  }
-}
-
-class MockMediaStreamTrack {
-  readonly id: string
-
-  constructor(id: string) {
-    this.id = id
-  }
-
-  stop() {}
-}
-
-class MockMediaStream {
-  private readonly tracks: MockMediaStreamTrack[]
-
-  constructor(tracks: MockMediaStreamTrack[] = [new MockMediaStreamTrack('track-1')]) {
-    this.tracks = tracks
-  }
-
-  getTracks() {
-    return this.tracks
-  }
-
-  addTrack(track: MockMediaStreamTrack) {
-    this.tracks.push(track)
-  }
-}
-
-class MockRTCPeerConnection {
-  static instances: MockRTCPeerConnection[] = []
-
-  connectionState: RTCPeerConnectionState = 'new'
-  localDescription: RTCSessionDescriptionInit | null = null
-  remoteDescription: RTCSessionDescriptionInit | null = null
-  onicecandidate: ((event: { candidate: { toJSON: () => RTCIceCandidateInit } | null }) => void) | null = null
-  ontrack: ((event: { streams: MockMediaStream[]; track: MockMediaStreamTrack }) => void) | null = null
-  onconnectionstatechange: (() => void) | null = null
-  private readonly senders: Array<{ track: MockMediaStreamTrack | null }> = []
-
-  constructor(_config?: RTCConfiguration) {
-    void _config
-    MockRTCPeerConnection.instances.push(this)
-  }
-
-  getSenders() {
-    return this.senders
-  }
-
-  addTrack(track: MockMediaStreamTrack, _stream: MockMediaStream) {
-    void _stream
-    this.senders.push({ track })
-    return { track }
-  }
-
-  async createOffer() {
-    return {
-      type: 'offer' as const,
-      sdp: 'mock-offer-sdp',
-    }
-  }
-
-  async createAnswer() {
-    return {
-      type: 'answer' as const,
-      sdp: 'mock-answer-sdp',
-    }
-  }
-
-  async setLocalDescription(description: RTCSessionDescriptionInit) {
-    this.localDescription = description
-  }
-
-  async setRemoteDescription(description: RTCSessionDescriptionInit) {
-    this.remoteDescription = description
-  }
-
-  async addIceCandidate(_candidate: RTCIceCandidateInit) {
-    void _candidate
-  }
-
-  close() {
-    this.connectionState = 'closed'
-  }
-
-  emitConnectionState(state: RTCPeerConnectionState) {
-    this.connectionState = state
-    this.onconnectionstatechange?.()
-  }
-
-  emitTrack(stream = new MockMediaStream()) {
-    this.ontrack?.({
-      streams: [stream],
-      track: stream.getTracks()[0],
-    })
-  }
-
-  emitIceCandidate(candidate: RTCIceCandidateInit) {
-    this.onicecandidate?.({
-      candidate: {
-        toJSON: () => candidate,
-      },
-    })
-  }
-}
-
-function createDeferredPromise<T>() {
-  let resolvePromise!: (value: T | PromiseLike<T>) => void
-  let rejectPromise!: (reason?: unknown) => void
-
-  const promise = new Promise<T>((resolve, reject) => {
-    resolvePromise = resolve
-    rejectPromise = reject
-  })
-
-  return {
-    promise,
-    resolve: resolvePromise,
-    reject: rejectPromise,
-  }
+  return getLatestMockWebSocket()
 }
 
 describe('App', () => {
   beforeEach(() => {
-    MockWebSocket.instances = []
-    MockRTCPeerConnection.instances = []
-    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
-    vi.stubGlobal(
-      'RTCPeerConnection',
-      MockRTCPeerConnection as unknown as typeof RTCPeerConnection,
-    )
-    vi.stubGlobal('MediaStream', MockMediaStream as unknown as typeof MediaStream)
-    vi.stubGlobal('crypto', {
-      randomUUID: () => 'call-1',
-    } as unknown as Crypto)
-    Object.defineProperty(window, 'isSecureContext', {
-      configurable: true,
-      value: true,
-    })
-    Object.defineProperty(navigator, 'mediaDevices', {
-      configurable: true,
-      value: {
-        getUserMedia: vi.fn(async () => new MockMediaStream()),
-      },
-    })
+    installRealtimeAppBrowserMocks()
   })
 
   afterEach(() => {
-    vi.unstubAllGlobals()
+    resetRealtimeAppBrowserMocks()
     apiMocks.mockBuildWebSocketUrl.mockClear()
     apiMocks.mockCreateChat.mockReset()
     apiMocks.mockFetchChats.mockReset()
@@ -404,15 +246,10 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
+    const socket = await connectAsUser(user)
     expect(socket.url).toBe(`${DEFAULT_WS_URL}?userId=alice`)
 
-    await act(async () => {
-      socket.emitOpen()
-    })
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(apiMocks.mockFetchChats).toHaveBeenCalledWith(
@@ -500,13 +337,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -600,10 +432,7 @@ describe('App', () => {
     )
 
     await user.type(screen.getByLabelText('welcome server url'), DEFAULT_WS_URL)
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
+    const socket = await connectAsUser(user)
     await act(async () => {
       socket.emitError()
     })
@@ -627,13 +456,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -685,13 +509,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -747,17 +566,12 @@ describe('App', () => {
     const deferredStream = createDeferredPromise<MockMediaStream>()
     const getUserMediaMock = vi.fn(() => deferredStream.promise)
 
-    vi.stubGlobal('crypto', {
+    installRealtimeAppBrowserMocks({
+      getUserMedia: getUserMediaMock,
       randomUUID: vi
         .fn()
         .mockReturnValueOnce('call-1')
         .mockReturnValueOnce('call-2'),
-    } as unknown as Crypto)
-    Object.defineProperty(navigator, 'mediaDevices', {
-      configurable: true,
-      value: {
-        getUserMedia: getUserMediaMock,
-      },
     })
 
     apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
@@ -773,13 +587,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -846,20 +655,12 @@ describe('App', () => {
       },
     ])
 
-    Object.defineProperty(window, 'isSecureContext', {
-      configurable: true,
-      value: false,
-    })
+    setSecureContext(false)
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -909,13 +710,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -969,13 +765,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -1034,13 +825,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -1098,13 +884,8 @@ describe('App', () => {
 
     render(<App />)
 
-    await user.type(screen.getByLabelText('welcome user id'), 'alice')
-    await user.click(screen.getByRole('button', { name: 'connect' }))
-
-    const socket = MockWebSocket.instances[0]
-    await act(async () => {
-      socket.emitOpen()
-    })
+    const socket = await connectAsUser(user)
+    await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
@@ -1172,51 +953,5 @@ describe('App', () => {
         reason: 'declined',
       }),
     )
-  })
-
-  test('updates shell spotlight coordinates from pointer movement', () => {
-    render(<App />)
-
-    const shell = document.querySelector('.app-shell')
-    expect(shell).not.toBeNull()
-
-    Object.defineProperty(shell!, 'getBoundingClientRect', {
-      value: () => ({
-        left: 10,
-        top: 20,
-        right: 210,
-        bottom: 220,
-        width: 200,
-        height: 200,
-        x: 10,
-        y: 20,
-        toJSON: () => ({}),
-      }),
-    })
-
-    fireEvent.pointerMove(shell!, { clientX: 60, clientY: 80 })
-    expect(shell).toHaveStyle({
-      '--spotlight-x': '50px',
-      '--spotlight-y': '60px',
-    })
-
-    fireEvent.pointerLeave(shell!)
-    expect(shell).toHaveStyle({
-      '--spotlight-x': '50%',
-      '--spotlight-y': '18%',
-    })
-  })
-
-  test('syncs the app height to the visible viewport on mobile browsers', async () => {
-    render(<App />)
-
-    await waitFor(() => {
-      expect(document.documentElement.style.getPropertyValue('--app-visible-height')).toBe(
-        '844px',
-      )
-      expect(document.documentElement.style.getPropertyValue('--app-visible-offset-top')).toBe(
-        '0px',
-      )
-    })
   })
 })

@@ -1,0 +1,76 @@
+.conversation-call-banner {
+  grid-area: call;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(0.75rem, 1.25vw, 1rem);
+  padding: clamp(0.75rem, 1vw, 0.875rem) clamp(0.875rem, 1.4vw, 1.125rem);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: clamp(1rem, 1.5vw, 1.375rem);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.028)),
+    radial-gradient(circle at top left, rgba(123, 169, 255, 0.12), transparent 34%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    var(--shadow-soft);
+}
+
+.conversation-call-copy {
+  min-width: 0;
+}
+
+.conversation-call-eyebrow {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.conversation-call-title {
+  margin-top: 0.25rem;
+  color: var(--text-primary);
+  font-size: 0.94rem;
+  line-height: 1.35;
+}
+
+.conversation-call-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.conversation-call-action {
+  width: auto;
+  min-width: clamp(5.5rem, 10vw, 6.25rem);
+  min-height: clamp(2.5rem, 4vw, 2.75rem);
+  padding: 0.625rem 0.875rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 760px) {
+  .conversation-call-banner {
+    margin: 0.625rem 1rem 0;
+    padding: 0.75rem 0.875rem;
+    border-radius: 1.125rem;
+    align-items: center;
+    flex-direction: row;
+    gap: 12px;
+  }
+
+  .conversation-call-actions {
+    width: auto;
+    margin-left: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+
+  .conversation-call-action {
+    min-width: 88px;
+  }
+}

@@ -7,6 +7,7 @@ import {
   panelTransition,
   sectionReveal,
 } from '../../../shared/motion/presets'
+import './WelcomeExperience.css'
 
 interface WelcomeExperienceProps {
   serverUrl: string

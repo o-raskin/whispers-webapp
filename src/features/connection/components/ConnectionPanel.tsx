@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { itemReveal, listStagger, sectionReveal, springTransition } from '../../../shared/motion/presets'
+import './connection.css'
 
 interface ConnectionPanelProps {
   isCompactMobile?: boolean

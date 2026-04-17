@@ -1,13 +1,17 @@
 import {
   appendLog,
+} from './utils/eventLog'
+import {
   countUnreadMessages,
+  loadReadMarkers,
+  saveReadMarkers,
+} from './utils/readMarkers'
+import {
   hasTypedEventShape,
   isMessageRecord,
   isPresenceEvent,
   isTypingEvent,
-  loadReadMarkers,
-  saveReadMarkers,
-} from './appTestUtils'
+} from './utils/websocketPayloadGuards'
 
 describe('App helpers', () => {
   beforeEach(() => {

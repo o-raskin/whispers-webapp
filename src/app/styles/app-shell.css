@@ -1,0 +1,271 @@
+.app-frame {
+  position: relative;
+  max-width: 1500px;
+  margin: 0 auto;
+  min-height: calc(var(--app-visible-height) - (var(--page-pad) * 2));
+}
+
+.ambient {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(24px);
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: ambientFloat 18s ease-in-out infinite;
+}
+
+.ambient-one {
+  top: 60px;
+  left: -90px;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(91, 164, 255, 0.42), transparent 68%);
+}
+
+.ambient-two {
+  top: 240px;
+  right: -60px;
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, rgba(157, 132, 255, 0.34), transparent 70%);
+  animation-delay: -5s;
+}
+
+.ambient-three {
+  right: 24%;
+  bottom: 80px;
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(88, 229, 198, 0.18), transparent 72%);
+  animation-delay: -9s;
+}
+
+.app-shell {
+  --spotlight-x: 50%;
+  --spotlight-y: 18%;
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: calc(var(--app-visible-height) - (var(--page-pad) * 2));
+  height: calc(var(--app-visible-height) - (var(--page-pad) * 2));
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 36px;
+  background:
+    radial-gradient(circle at top, rgba(123, 169, 255, 0.08), transparent 26%),
+    linear-gradient(180deg, rgba(14, 21, 38, 0.97), rgba(7, 12, 23, 0.985));
+  box-shadow: var(--shadow-shell);
+  backdrop-filter: blur(28px);
+  isolation: isolate;
+}
+
+.app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, rgba(123, 169, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%);
+  pointer-events: none;
+}
+
+.app-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(680px circle at var(--spotlight-x) var(--spotlight-y), rgba(123, 169, 255, 0.13), transparent 45%),
+    radial-gradient(520px circle at calc(var(--spotlight-x) - 14%) calc(var(--spotlight-y) + 18%), rgba(157, 132, 255, 0.08), transparent 48%);
+  pointer-events: none;
+  transition: opacity 220ms ease;
+  z-index: 0;
+}
+
+.app-shell.is-welcome-active .topbar,
+.app-shell.is-welcome-active .workspace-grid {
+  filter: blur(12px);
+  transform: scale(0.986);
+  opacity: 0.52;
+}
+
+.topbar,
+.sidebar,
+.workspace-main,
+.conversation,
+.log-panel {
+  position: relative;
+  z-index: 1;
+  transition:
+    filter 420ms ease,
+    transform 420ms ease,
+    opacity 420ms ease;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(16rem, var(--sidebar-width)) minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.workspace-main {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: var(--workspace-gap);
+  padding: var(--workspace-gap);
+  min-height: 0;
+  background:
+    radial-gradient(circle at top left, rgba(123, 169, 255, 0.06), transparent 28%),
+    linear-gradient(180deg, rgba(10, 16, 29, 0.64), rgba(8, 13, 24, 0.86));
+}
+
+@media (max-width: 980px) {
+  .workspace-main {
+    padding: clamp(0.875rem, 1.75vw, 1rem);
+  }
+
+  .workspace-grid {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 1240px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  html,
+  body,
+  #root {
+    min-height: calc(var(--app-visible-height) + var(--app-visible-offset-top));
+    height: calc(var(--app-visible-height) + var(--app-visible-offset-top));
+    overflow: hidden;
+  }
+
+  body {
+    --page-pad: 0px;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    overscroll-behavior: none;
+  }
+
+  #root {
+    overflow: hidden;
+  }
+
+  .app-frame {
+    padding-top: var(--app-visible-offset-top);
+  }
+
+  .app-frame,
+  .app-shell {
+    min-height: var(--app-visible-height);
+    height: var(--app-visible-height);
+  }
+
+  .app-shell {
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .app-shell::after {
+    display: none;
+  }
+
+  .ambient {
+    opacity: 0.42;
+    filter: blur(32px);
+  }
+
+  .workspace-grid {
+    display: block;
+    position: relative;
+    overflow: hidden;
+    height: 100%;
+    min-height: 0;
+    padding-top: 0;
+  }
+
+  .workspace-grid.is-mobile-inbox-open > .workspace-main {
+    display: none;
+  }
+
+  .workspace-grid.has-mobile-chat-open > .sidebar {
+    display: none;
+  }
+
+  .workspace-grid.has-mobile-chat-open > .workspace-main {
+    display: block;
+    padding: 0.5rem 0 0;
+  }
+
+  .mobile-workspace {
+    position: relative;
+    min-height: 100%;
+    height: 100%;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .mobile-screen {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(180deg, rgba(10, 16, 29, 0.58), rgba(8, 13, 24, 0.84));
+    will-change: transform, opacity;
+  }
+
+  .mobile-screen-inbox {
+    z-index: 1;
+  }
+
+  .mobile-screen-chat {
+    display: flex;
+    flex-direction: column;
+    z-index: 2;
+    box-shadow: -24px 0 40px rgba(4, 9, 18, 0.22);
+    overflow: hidden;
+  }
+
+  .mobile-screen-chat .workspace-main {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    gap: 0;
+    padding: 0;
+    background: transparent;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .workspace-main {
+    gap: 0.875rem;
+    padding: 0.5rem 0.875rem 0.875rem;
+    min-height: 100%;
+    height: 100%;
+  }
+
+  .app-shell.is-welcome-active .topbar,
+  .app-shell.is-welcome-active .workspace-grid {
+    filter: blur(8px);
+  }
+}
+
+@media (max-width: 560px) {
+  body {
+    padding:
+      env(safe-area-inset-top)
+      env(safe-area-inset-right)
+      env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+
+  .workspace-main {
+    padding: 1rem;
+  }
+}

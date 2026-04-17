@@ -7,6 +7,7 @@ import {
   sectionReveal,
   springTransition,
 } from '../../../shared/motion/presets'
+import './event-log.css'
 
 interface EventLogPanelProps {
   lines: string[]
