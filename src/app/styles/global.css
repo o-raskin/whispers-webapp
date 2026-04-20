@@ -273,24 +273,6 @@ textarea:focus-visible {
     var(--shadow-card);
 }
 
-.brand-copy,
-.status-copy,
-.sidebar-note,
-.chat-item-main,
-.chat-item-preview,
-.chat-item-meta,
-.conversation-subtitle,
-.welcome-description,
-.welcome-caption,
-.welcome-profile,
-.welcome-trace-line,
-.log-line,
-.empty-copy,
-.welcome-panel-copy {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
 @keyframes ambientFloat {
   0%,
   100% {

@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { itemReveal, panelTransition } from '../../../shared/motion/presets'
+import './chat-sidebar-header.css'
 
 interface ChatSidebarHeaderProps {
   isInfoOpen: boolean

@@ -3,6 +3,7 @@ import type { RefObject } from 'react'
 import { itemReveal, panelTransition, springTransition } from '../../../shared/motion/presets'
 import type { AuthUserProfile } from '../../../shared/types/auth'
 import { getInitials } from './chatSidebarShared'
+import './chat-sidebar-account.css'
 
 interface ChatSidebarAccountProps {
   currentUser: AuthUserProfile | null

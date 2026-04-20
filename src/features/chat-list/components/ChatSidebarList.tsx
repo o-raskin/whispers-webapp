@@ -8,6 +8,7 @@ import {
 } from '../../../shared/motion/presets'
 import { formatChatListTimestamp, isUserOnline } from '../../../shared/utils/presence'
 import { getChatDisplayName, getInitials } from './chatSidebarShared'
+import './chat-sidebar-list.css'
 
 interface ChatSidebarListProps {
   chats: ChatSummary[]

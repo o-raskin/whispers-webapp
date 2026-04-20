@@ -26,6 +26,7 @@ Do not treat validating one target as validating the other.
 - Prefer the smallest sufficient context for the task.
 - Inspect the directly affected area first before expanding to neighboring files.
 - Do not read or refactor broad areas of the repo unless the task or evidence requires it.
+- When touching `src/app/App.tsx`, prefer extracting focused app-local hooks or utilities instead of expanding inline auth, websocket, or session orchestration.
 - Use repository skills intentionally instead of repeating large workflow instructions manually.
 - When updating repo guidance, decide whether the change belongs in `AGENTS.md`, `README.md`, a skill, or `docs/codex/*` before editing.
 - For broad or multi-part tasks, use subagents only when the work is clearly parallelizable and the results can be consolidated cleanly.
@@ -34,6 +35,7 @@ Do not treat validating one target as validating the other.
 ## Important Areas
 
 - `src/app/*`: app orchestration, providers, app shell, workspace layout, app-level hooks/utils
+- `src/app/testUtils/*`: app-level browser, websocket, and WebRTC test harnesses
 - `src/app/styles/*`: shared shell styling and high-impact responsive UI surfaces
 - `src/features/*`: feature-local components, hooks, and styles
 - `src/shared/api`: backend and websocket helpers
@@ -68,9 +70,9 @@ Run `npm run build` for config changes, production-path changes, or meaningful s
 ## Testing And Validation
 
 - Update tests when behavior, structure, or important contracts change.
-- When changing app orchestration, update `src/app/App.test.tsx` or `src/app/components/AppWorkspace.test.tsx` when relevant.
+- When changing app orchestration, update the relevant `src/app/App.*.test.tsx` suite or `src/app/components/AppWorkspace.test.tsx` when relevant.
 - When changing pure helpers in `src/shared/**` or `src/app/utils/**`, prefer focused unit tests near the source.
-- When app-level integration tests accumulate repeated browser fakes or shared flows, extract them into `src/app/testUtils/*` instead of growing `src/app/App.test.tsx`.
+- When app-level integration tests accumulate repeated browser fakes or shared flows, extract them into `src/app/testUtils/*` instead of growing one app-level test file.
 - Reuse `src/test/setup.tsx` instead of duplicating shared test setup.
 - Do not weaken tests just to make a refactor pass.
 

@@ -103,6 +103,8 @@
   font-size: 0.92rem;
   line-height: 1.45;
   color: var(--text-soft);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .conversation-typing-status {

@@ -312,6 +312,8 @@
   margin-top: 0.625rem;
   color: var(--text-secondary);
   line-height: 1.6;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @media (max-width: 980px) {

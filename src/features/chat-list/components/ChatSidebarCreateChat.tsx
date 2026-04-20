@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import type { ChangeEvent } from 'react'
 import { itemReveal, springTransition } from '../../../shared/motion/presets'
+import './chat-sidebar-create-chat.css'
 
 interface ChatSidebarCreateChatProps {
   isPrivateChatAvailable: boolean

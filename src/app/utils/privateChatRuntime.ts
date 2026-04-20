@@ -17,6 +17,12 @@ export interface PrivateChatSessionState {
   notice: string | null
 }
 
+export const DEFAULT_PRIVATE_CHAT_SESSION_STATE: PrivateChatSessionState = {
+  accessState: 'idle',
+  metadata: null,
+  notice: null,
+}
+
 export const PRIVATE_CHAT_READY_NOTICE =
   'Private messages are end-to-end encrypted and tied to this browser.'
 export const PRIVATE_CHAT_MISSING_KEY_NOTICE =

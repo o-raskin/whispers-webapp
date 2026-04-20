@@ -12,6 +12,7 @@ UI changes should be checked against both targets separately.
 ## Repository Shape
 
 - `src/app/*`: app orchestration, providers, app shell layout, and app-level hooks/utils
+- `src/app/testUtils/*`: reusable app-level browser, websocket, and WebRTC test harnesses
 - `src/features/*`: feature-local components, hooks, and styles
 - `src/shared/*`: backend helpers, adapters, config, types, and pure utilities
 - `src/test/setup.tsx`: shared Vitest and Testing Library setup

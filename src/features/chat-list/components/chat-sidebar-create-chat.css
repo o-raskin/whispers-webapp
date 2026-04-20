@@ -1,0 +1,100 @@
+.create-chat-card {
+  padding: clamp(0.875rem, 1.25vw, 1.125rem);
+  border: 1px solid var(--border-soft);
+  border-radius: 26px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.028)),
+    radial-gradient(circle at top, rgba(123, 169, 255, 0.05), transparent 72%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    var(--shadow-soft);
+}
+
+.create-chat-copy {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+.create-chat-eyebrow {
+  color: rgba(235, 241, 255, 0.72);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.create-chat {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.625rem;
+  align-items: stretch;
+}
+
+.create-chat-note {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.create-chat-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.625rem;
+}
+
+.create-chat-button {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.9rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.create-chat-button--private {
+  border-color: rgba(255, 214, 138, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 214, 138, 0.14), rgba(255, 255, 255, 0.04)),
+    radial-gradient(circle at top left, rgba(255, 214, 138, 0.14), transparent 58%);
+  color: #fff0cc;
+}
+
+.create-chat-footnote {
+  margin-top: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.create-chat-footnote.is-warning {
+  color: #ffd0d0;
+}
+
+@media (max-width: 760px) {
+  .create-chat-card {
+    border-radius: 22px;
+  }
+
+  .create-chat {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+  }
+
+  .create-chat-button {
+    width: clamp(2.75rem, 11vw, 3rem);
+    min-width: clamp(2.75rem, 11vw, 3rem);
+    min-height: clamp(2.75rem, 11vw, 3rem);
+  }
+}
+
+@media (max-width: 560px) {
+  .create-chat-card {
+    padding: 14px;
+  }
+}

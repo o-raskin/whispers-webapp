@@ -48,4 +48,44 @@ describe('WelcomeExperience', () => {
     expect(onConnect).toHaveBeenCalledTimes(1)
     expect(onLogout).not.toHaveBeenCalled()
   })
+
+  test('renders the signed-out provider flow and delegates login', async () => {
+    const user = userEvent.setup()
+    const onServerUrlChange = vi.fn()
+    const onConnect = vi.fn()
+    const onLogout = vi.fn()
+    const onStartGoogleLogin = vi.fn()
+
+    render(
+      <WelcomeExperience
+        authError="Provider redirect misconfigured."
+        authStatus="unauthenticated"
+        currentUser={null}
+        providerLabel="Google"
+        providerRedirectEnabled={false}
+        serverUrl="https://example.test"
+        status="disconnected"
+        onServerUrlChange={onServerUrlChange}
+        onConnect={onConnect}
+        onLogout={onLogout}
+        onStartGoogleLogin={onStartGoogleLogin}
+      />,
+    )
+
+    expect(screen.getByText('Sign in to Whispers')).toBeInTheDocument()
+    expect(screen.getByText('Continue with Google to access protected chats.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Provider redirect is not configured for this environment.'),
+    ).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Server URL'), {
+      target: { value: 'https://staging.example.test' },
+    })
+    await user.click(screen.getByRole('button', { name: /Continue with Google/i }))
+
+    expect(onServerUrlChange).toHaveBeenLastCalledWith('https://staging.example.test')
+    expect(onStartGoogleLogin).toHaveBeenCalledTimes(1)
+    expect(onConnect).not.toHaveBeenCalled()
+    expect(onLogout).not.toHaveBeenCalled()
+  })
 })
