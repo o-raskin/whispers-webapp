@@ -31,16 +31,37 @@ export function mergeThreadMessages(
   existingMessages: ChatMessage[] | undefined,
   incomingMessages: ChatMessage[],
 ) {
-  const seenMessageIds = new Set(existingMessages?.map((message) => message.id) ?? [])
-  const mergedMessages = existingMessages ? [...existingMessages] : []
+  const mergedMessagesById = new Map(
+    existingMessages?.map((message) => [message.id, message]) ?? [],
+  )
+
+  const shouldReplaceExistingMessage = (
+    existingMessage: ChatMessage,
+    incomingMessage: ChatMessage,
+  ) => {
+    if (
+      existingMessage.encryption?.mode === 'PRIVATE' &&
+      incomingMessage.encryption?.mode === 'PRIVATE'
+    ) {
+      if (existingMessage.encryption.state === incomingMessage.encryption.state) {
+        return existingMessage.text !== incomingMessage.text
+      }
+
+      return incomingMessage.encryption.state === 'decrypted'
+    }
+
+    return false
+  }
 
   for (const message of incomingMessages) {
-    if (!seenMessageIds.has(message.id)) {
-      seenMessageIds.add(message.id)
-      mergedMessages.push(message)
+    const existingMessage = mergedMessagesById.get(message.id)
+
+    if (!existingMessage || shouldReplaceExistingMessage(existingMessage, message)) {
+      mergedMessagesById.set(message.id, message)
     }
   }
 
+  const mergedMessages = [...mergedMessagesById.values()]
   mergedMessages.sort((left, right) => left.timestamp.localeCompare(right.timestamp))
   return mergedMessages
 }

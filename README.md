@@ -58,7 +58,7 @@ The container serves the Vite production build over nginx on port `80`. The bund
 The app defaults to the current browser origin for its WebSocket entrypoint:
 
 - WebSocket: `/ws/user`
-- REST: `/chats`, `/messages`, `/users`
+- REST: `/chats`, `/messages`, `/users`, `/public-keys`, `/private-chats`
 
 WebRTC 1-on-1 calls also default their ICE host to the current app hostname, which keeps local browser-to-browser calling aligned with the machine serving the app instead of a hard-coded LAN address.
 
@@ -86,6 +86,27 @@ Optional WebRTC overrides:
 - `VITE_WEBRTC_TURN_CREDENTIAL`: TURN credential override
 
 If these are unset, the app uses `stun:<current-host>:3478` plus `turn:<current-host>:3478` defaults for local coturn-style setups, and the peer connection is allowed to use direct candidates instead of requiring TURN relay only.
+
+## PRIVATE Chats
+
+The app now supports two 1-on-1 chat modes:
+
+- `DIRECT`: existing server-visible plaintext chat behavior
+- `PRIVATE`: browser-tied end-to-end encrypted chat behavior
+
+PRIVATE chats use the browser Web Crypto API with a locally stored key pair:
+
+- the private key stays in IndexedDB as browser-held `CryptoKey` material
+- only the public key is registered with the backend
+- each message is encrypted with a per-message `AES-GCM` key
+- that message key is wrapped twice with `RSA-OAEP`: once for the recipient and once for the sender's own browser key, so sent history remains readable after reload in the same browser
+
+Current PRIVATE chat limits:
+
+- browser-tied only
+- no multi-device sync or recovery flow
+- not a full Signal / X3DH / Double Ratchet implementation
+- if the local browser key is missing, older PRIVATE messages remain locked in that browser and the UI shows recovery messaging instead of falling back to plaintext
 
 ## HTTPS Development Certificate
 

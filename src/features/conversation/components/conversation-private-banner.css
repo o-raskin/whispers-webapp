@@ -1,0 +1,62 @@
+.conversation-private-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(255, 214, 138, 0.16);
+  border-radius: 1.25rem;
+  background:
+    linear-gradient(180deg, rgba(255, 214, 138, 0.08), rgba(255, 255, 255, 0.03)),
+    radial-gradient(circle at top left, rgba(255, 214, 138, 0.12), transparent 48%);
+  color: var(--text-primary);
+}
+
+.conversation-private-banner.is-missing-key,
+.conversation-private-banner.is-error {
+  border-color: rgba(255, 171, 171, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 171, 171, 0.08), rgba(255, 255, 255, 0.03)),
+    radial-gradient(circle at top left, rgba(255, 171, 171, 0.12), transparent 48%);
+}
+
+.conversation-private-banner__copy {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.conversation-private-banner__copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.conversation-private-banner__eyebrow {
+  color: #ffe8ba;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.conversation-private-banner__action {
+  flex: 0 0 auto;
+  padding: 0.75rem 0.95rem;
+  border-radius: 1rem;
+}
+
+@media (max-width: 760px) {
+  .conversation-private-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    margin: 0.625rem 1rem 0;
+    padding: 0.85rem 0.9rem;
+  }
+
+  .conversation-private-banner__action {
+    width: 100%;
+    justify-content: center;
+  }
+}

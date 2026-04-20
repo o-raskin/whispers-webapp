@@ -132,11 +132,15 @@ export function ConversationHistory({
                         !previous ||
                         previous.senderUserId !== message.senderUserId ||
                         previous.direction !== message.direction
+                      const privateEncryptionStateClass =
+                        message.encryption?.mode === 'PRIVATE'
+                          ? `private-${message.encryption.state}`
+                          : ''
 
                       return (
                         <motion.article
                           key={message.id}
-                          className={`message ${message.direction} ${showMeta ? '' : 'stacked'}`}
+                          className={`message ${message.direction} ${showMeta ? '' : 'stacked'} ${privateEncryptionStateClass}`}
                           layout
                           variants={itemReveal}
                           initial={isMobileLayout ? false : 'hidden'}
@@ -145,11 +149,20 @@ export function ConversationHistory({
                           transition={panelTransition}
                         >
                           {showMeta ? (
-                            <span className="message-meta">
-                              {message.senderUserId === currentUserId
-                                ? 'You'
-                                : participantMessageLabel}
-                            </span>
+                            <div className="message-meta-row">
+                              <span className="message-meta">
+                                {message.senderUserId === currentUserId
+                                  ? 'You'
+                                  : participantMessageLabel}
+                              </span>
+                              {message.encryption?.mode === 'PRIVATE' ? (
+                                <span className="message-private-chip">
+                                  {message.encryption.state === 'decrypted'
+                                    ? 'Private'
+                                    : 'Locked'}
+                                </span>
+                              ) : null}
+                            </div>
                           ) : null}
                           <span className="message-body">{message.text}</span>
                           {message.direction !== 'system' ? (

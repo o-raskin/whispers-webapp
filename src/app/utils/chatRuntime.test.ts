@@ -21,6 +21,7 @@ function createChatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     direction: overrides.direction ?? 'received',
     text: overrides.text ?? 'Hello',
     timestamp: overrides.timestamp ?? '2026-04-12T10:00:00Z',
+    ...(overrides.encryption ? { encryption: overrides.encryption } : {}),
   }
 }
 
@@ -105,6 +106,27 @@ describe('chatRuntime', () => {
         messages: [createChatMessage({ id: 'message-3', text: 'Newest' })],
       },
     })
+  })
+
+  test('upgrades a locked private placeholder when the browser can decrypt it later', () => {
+    const placeholder = createChatMessage({
+      id: 'private-message-1',
+      text: 'Encrypted message unavailable on this browser.',
+      encryption: {
+        mode: 'PRIVATE',
+        state: 'missing-key',
+      },
+    })
+    const decrypted = createChatMessage({
+      id: 'private-message-1',
+      text: 'Recovered private text',
+      encryption: {
+        mode: 'PRIVATE',
+        state: 'decrypted',
+      },
+    })
+
+    expect(mergeThreadMessages([placeholder], [decrypted])).toEqual([decrypted])
   })
 
   test('preserves visible chat previews when fetched chat summaries contain hidden call signals', () => {

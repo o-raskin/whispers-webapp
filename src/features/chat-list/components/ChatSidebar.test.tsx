@@ -9,12 +9,14 @@ describe('ChatSidebar', () => {
         currentUser={null}
         currentUserId=""
         chats={[]}
+        isPrivateChatAvailable={true}
         selectedChatId={null}
         users={{}}
         status="disconnected"
         newChatUserId=""
         onNewChatUserIdChange={vi.fn()}
-        onCreateChat={vi.fn()}
+        onCreateDirectChat={vi.fn()}
+        onCreatePrivateChat={vi.fn()}
         onSelectChat={vi.fn()}
         onDisconnect={vi.fn()}
       />,
@@ -43,12 +45,14 @@ describe('ChatSidebar', () => {
             lastMessageTimestamp: '2026-04-12T10:00:00',
           },
         ]}
+        isPrivateChatAvailable={true}
         selectedChatId={null}
         users={{}}
         status="connected"
         newChatUserId=""
         onNewChatUserIdChange={vi.fn()}
-        onCreateChat={vi.fn()}
+        onCreateDirectChat={vi.fn()}
+        onCreatePrivateChat={vi.fn()}
         onSelectChat={vi.fn()}
         onDisconnect={vi.fn()}
       />,
@@ -96,7 +100,8 @@ describe('ChatSidebar', () => {
   test('toggles info, updates search, starts chats, and selects a conversation', async () => {
     const user = userEvent.setup()
     const onNewChatUserIdChange = vi.fn()
-    const onCreateChat = vi.fn()
+    const onCreateDirectChat = vi.fn()
+    const onCreatePrivateChat = vi.fn()
     const onSelectChat = vi.fn()
     const onDisconnect = vi.fn()
 
@@ -124,6 +129,7 @@ describe('ChatSidebar', () => {
             unreadCount: 2,
           },
         ]}
+        isPrivateChatAvailable={true}
         selectedChatId="chat-1"
         users={{
           bob: {
@@ -135,7 +141,8 @@ describe('ChatSidebar', () => {
         status="connected"
         newChatUserId=""
         onNewChatUserIdChange={onNewChatUserIdChange}
-        onCreateChat={onCreateChat}
+        onCreateDirectChat={onCreateDirectChat}
+        onCreatePrivateChat={onCreatePrivateChat}
         onSelectChat={onSelectChat}
         onDisconnect={onDisconnect}
       />,
@@ -148,14 +155,16 @@ describe('ChatSidebar', () => {
     fireEvent.change(screen.getByLabelText('Search user to start a new chat'), {
       target: { value: 'carol' },
     })
-    await user.click(screen.getByRole('button', { name: 'Start chat' }))
+    await user.click(screen.getByRole('button', { name: 'Start direct chat' }))
+    await user.click(screen.getByRole('button', { name: 'Start private chat' }))
     await user.click(screen.getByRole('button', { name: /bob/i }))
 
     expect(
       screen.getByText(/private channels, presence signals, and the latest activity/i),
     ).toBeInTheDocument()
     expect(onNewChatUserIdChange).toHaveBeenLastCalledWith('carol')
-    expect(onCreateChat).toHaveBeenCalledTimes(1)
+    expect(onCreateDirectChat).toHaveBeenCalledTimes(1)
+    expect(onCreatePrivateChat).toHaveBeenCalledTimes(1)
     expect(onDisconnect).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('menu', { name: 'Account menu' })).not.toBeInTheDocument()
     expect(onSelectChat).toHaveBeenCalledWith('chat-1')

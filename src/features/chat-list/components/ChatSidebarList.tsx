@@ -73,13 +73,19 @@ export function ChatSidebarList({
               chats.map((chat, index) => {
                 const isActive = chat.chatId === selectedChatId
                 const isOnline = isUserOnline(users[chat.username])
+                const isPrivateChat = (chat.type ?? 'DIRECT') === 'PRIVATE'
                 const lastMessageTime = formatChatListTimestamp(chat.lastMessageTimestamp)
                 const displayName = getChatDisplayName(chat)
+                const preview = chat.preview || (
+                  isPrivateChat
+                    ? 'Encrypted messages stay readable only in this browser.'
+                    : 'No messages yet.'
+                )
 
                 return (
                   <motion.button
                     key={chat.chatId}
-                    className={`chat-item ${isActive ? 'active' : ''}`}
+                    className={`chat-item ${isActive ? 'active' : ''} ${isPrivateChat ? 'private' : ''}`}
                     type="button"
                     onClick={() => onSelectChat(chat.chatId)}
                     layout
@@ -112,9 +118,14 @@ export function ChatSidebarList({
                           getInitials(displayName)
                         )}
                       </div>
-                      <div className="chat-item-title">{displayName}</div>
+                      <div className="chat-item-title-row">
+                        <div className="chat-item-title">{displayName}</div>
+                        {isPrivateChat ? (
+                          <span className="chat-item-chip">Private</span>
+                        ) : null}
+                      </div>
                       <div className="chat-item-preview">
-                        {chat.preview || 'No messages yet.'}
+                        {preview}
                       </div>
                       <div className="chat-item-side">
                         {lastMessageTime ? (

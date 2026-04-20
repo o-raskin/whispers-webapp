@@ -1,5 +1,10 @@
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
-export type ChatType = 'DIRECT' | 'GROUP'
+export type ChatType = 'DIRECT' | 'GROUP' | 'PRIVATE'
+export type PrivateChatProtocolVersion = 'v1'
+export type PrivateChatEncryptionAlgorithm = 'AES-GCM'
+export type PrivateChatKeyWrapAlgorithm = 'RSA-OAEP'
+export type PrivateChatKeyFormat = 'spki'
+export type PrivateChatKeyStatus = 'ACTIVE' | 'REPLACED' | 'REVOKED'
 
 export interface UserPresence {
   username: string
@@ -14,6 +19,10 @@ export interface ChatMessage {
   direction: 'sent' | 'received' | 'system'
   text: string
   timestamp: string
+  encryption?: {
+    mode: 'PRIVATE'
+    state: 'decrypted' | 'error' | 'missing-key'
+  }
 }
 
 export interface MessageRecord {
@@ -21,6 +30,27 @@ export interface MessageRecord {
   chatId: string
   senderUserId: string
   text: string
+  timestamp: string
+}
+
+export interface EncryptedPrivateMessagePayload {
+  protocolVersion: PrivateChatProtocolVersion
+  encryptionAlgorithm: PrivateChatEncryptionAlgorithm
+  keyWrapAlgorithm: PrivateChatKeyWrapAlgorithm
+  ciphertext: string
+  nonce: string
+  senderKeyId: string
+  senderMessageKeyEnvelope: string
+  recipientKeyId: string
+  recipientMessageKeyEnvelope: string
+}
+
+export interface PrivateMessageRecord {
+  type?: 'PRIVATE_MESSAGE' | 'private_message'
+  chatId: string
+  senderUserId: string
+  chatType: 'PRIVATE'
+  encryptedMessage: EncryptedPrivateMessagePayload
   timestamp: string
 }
 
@@ -107,6 +137,12 @@ export interface SendMessageCommand {
   text: string
 }
 
+export interface SendPrivateMessageCommand {
+  type: 'PRIVATE_MESSAGE'
+  chatId: string
+  privateMessage: EncryptedPrivateMessagePayload
+}
+
 export type PingCommandType = 'PRESENCE'
 
 export interface PingCommand {
@@ -127,7 +163,32 @@ export interface TypingStopCommand {
 }
 
 export type TypingCommand = TypingStartCommand | TypingStopCommand
-export type WebSocketOutgoingCommand = SendMessageCommand | PingCommand | TypingCommand
+export type WebSocketOutgoingCommand =
+  | SendMessageCommand
+  | SendPrivateMessageCommand
+  | PingCommand
+  | TypingCommand
+
+export interface PrivateChatKeyRegistration {
+  keyId: string
+  publicKey: string
+  algorithm: PrivateChatKeyWrapAlgorithm
+  format: PrivateChatKeyFormat
+}
+
+export interface PrivateChatKeyView extends PrivateChatKeyRegistration {
+  status: PrivateChatKeyStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PrivateChatView {
+  chatId: string
+  username: string
+  type: 'PRIVATE'
+  currentUserKey: PrivateChatKeyView
+  counterpartKey: PrivateChatKeyView
+}
 
 export interface PresenceEvent {
   type: 'presence' | 'PRESENCE'
@@ -141,7 +202,11 @@ export interface TypingEvent {
   username?: string
 }
 
-export type WebSocketIncomingEvent = MessageRecord | PresenceEvent | TypingEvent
+export type WebSocketIncomingEvent =
+  | MessageRecord
+  | PrivateMessageRecord
+  | PresenceEvent
+  | TypingEvent
 
 export interface ErrorResponse {
   error: string

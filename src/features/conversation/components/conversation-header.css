@@ -18,6 +18,28 @@
   min-height: clamp(2.75rem, 5vw, 3.5rem);
 }
 
+.conversation-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.conversation-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0.28rem 0.62rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 138, 0.22);
+  background: rgba(255, 214, 138, 0.1);
+  color: #ffe8ba;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .conversation-mobile-back-icon {
   position: relative;
   display: block;
@@ -209,6 +231,15 @@
   .conversation-copy {
     min-width: 0;
     min-height: 44px;
+  }
+
+  .conversation-title-row {
+    gap: 0.45rem;
+  }
+
+  .conversation-mode-chip {
+    padding: 0.22rem 0.5rem;
+    font-size: 0.62rem;
   }
 
   .conversation-avatar {

@@ -120,12 +120,14 @@ paths:
 
         Client text frames may send:
         - chat message JSON: `{"type":"MESSAGE","chatId":123,"text":"hello there"}`
+        - private chat message JSON: `{"type":"PRIVATE_MESSAGE","chatId":456,"privateMessage":{"protocolVersion":"v1","encryptionAlgorithm":"AES-GCM","keyWrapAlgorithm":"RSA-OAEP","ciphertext":"...","nonce":"...","senderKeyId":"alice-browser-key","senderMessageKeyEnvelope":"...","recipientKeyId":"bob-browser-key","recipientMessageKeyEnvelope":"..."}}`
         - presence ping JSON: `{"type":"PRESENCE"}`
         - typing started JSON: `{"type":"TYPING_START","chatId":123}`
         - typing stopped JSON: `{"type":"TYPING_END","chatId":123}`
 
         Server text frames may send:
         - `MessageRecord` as JSON
+        - `PrivateMessageView` as JSON
         - `PresenceEvent` as JSON
         - `TypingEvent` as JSON
         - plain text errors starting with `ERROR:`
@@ -144,6 +146,16 @@ paths:
   /chats:
     get:
       summary: Get chats for the authenticated user
+      description: |
+        `DIRECT` chats are always returned.
+        `PRIVATE` chats are returned only when the optional browser `keyId` matches the browser key bound to that chat for the authenticated user.
+      parameters:
+        - name: keyId
+          in: query
+          required: false
+          schema:
+            type: string
+          example: alice-browser-key
       responses:
         '200':
           description: List of chats for the user
@@ -156,7 +168,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
-      summary: Create a chat with another connected user
+      summary: Create a DIRECT chat with another user
       parameters:
         - name: targetUserId
           in: query
@@ -178,9 +190,131 @@ paths:
         '409':
           $ref: '#/components/responses/Conflict'
 
+  /public-keys:
+    post:
+      summary: Register or update the current browser public key for PRIVATE chats
+      description: |
+        The authenticated user is resolved from the bearer token on the request.
+        The request body must contain only the browser public-key registration data.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterPrivateChatKeyRequest'
+      responses:
+        '200':
+          description: Current browser key stored as the user's active PRIVATE key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateChatKeyView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /private-chats:
+    post:
+      summary: Create a PRIVATE browser-tied chat with another user
+      parameters:
+        - name: targetUserId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: bob@example.com
+        - name: keyId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: alice-browser-key
+      responses:
+        '200':
+          description: PRIVATE chat created or returned if it already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /private-chats/{chatId}:
+    get:
+      summary: Get PRIVATE chat metadata and browser-bound key material references
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 456
+        - name: keyId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: alice-browser-key
+      responses:
+        '200':
+          description: PRIVATE chat metadata for the browser key bound to that chat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateChatView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /private-chats/{chatId}/messages:
+    get:
+      summary: Get encrypted message history for a PRIVATE chat bound to a specific browser key
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 456
+        - name: keyId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: alice-browser-key
+      responses:
+        '200':
+          description: Stored encrypted messages for the PRIVATE chat
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PrivateMessageView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /messages:
     get:
-      summary: Get message history for a chat
+      summary: Get plaintext message history for a DIRECT chat
       parameters:
         - name: chatId
           in: query
@@ -374,7 +508,7 @@ components:
 
     ChatType:
       type: string
-      enum: [DIRECT, GROUP]
+      enum: [DIRECT, PRIVATE]
       example: DIRECT
 
     WebSocketCommand:
@@ -393,11 +527,141 @@ components:
           type: string
           nullable: true
           example: hello there
+        privateMessage:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/EncryptedPrivateMessagePayload'
 
     WebSocketCommandType:
       type: string
-      enum: [PRESENCE, MESSAGE, TYPING_START, TYPING_END]
+      enum: [PRESENCE, MESSAGE, PRIVATE_MESSAGE, TYPING_START, TYPING_END]
       example: MESSAGE
+
+    RegisterPrivateChatKeyRequest:
+      type: object
+      required:
+        - keyId
+        - publicKey
+        - algorithm
+        - format
+      properties:
+        keyId:
+          type: string
+          description: Client-generated browser/device key identifier
+          example: alice-browser-key
+        publicKey:
+          type: string
+          description: Public key material encoded by the frontend, typically base64 SPKI
+          example: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
+        algorithm:
+          type: string
+          example: RSA-OAEP
+        format:
+          type: string
+          example: spki
+
+    PrivateChatKeyStatus:
+      type: string
+      enum: [ACTIVE, REVOKED]
+      example: ACTIVE
+
+    PrivateChatKeyView:
+      type: object
+      required:
+        - keyId
+        - publicKey
+        - algorithm
+        - format
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        keyId:
+          type: string
+          example: alice-browser-key
+        publicKey:
+          type: string
+          example: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
+        algorithm:
+          type: string
+          example: RSA-OAEP
+        format:
+          type: string
+          example: spki
+        status:
+          $ref: '#/components/schemas/PrivateChatKeyStatus'
+        createdAt:
+          type: string
+          example: '2026-04-20T12:00:00Z'
+        updatedAt:
+          type: string
+          example: '2026-04-20T12:01:00Z'
+
+    PrivateChatView:
+      type: object
+      required:
+        - chatId
+        - username
+        - type
+        - currentUserKey
+        - counterpartKey
+      properties:
+        chatId:
+          type: integer
+          format: int64
+          example: 456
+        username:
+          type: string
+          example: bob@example.com
+        type:
+          $ref: '#/components/schemas/ChatType'
+        currentUserKey:
+          $ref: '#/components/schemas/PrivateChatKeyView'
+        counterpartKey:
+          $ref: '#/components/schemas/PrivateChatKeyView'
+
+    EncryptedPrivateMessagePayload:
+      type: object
+      required:
+        - protocolVersion
+        - encryptionAlgorithm
+        - keyWrapAlgorithm
+        - ciphertext
+        - nonce
+        - senderKeyId
+        - senderMessageKeyEnvelope
+        - recipientKeyId
+        - recipientMessageKeyEnvelope
+      properties:
+        protocolVersion:
+          type: string
+          example: v1
+        encryptionAlgorithm:
+          type: string
+          example: AES-GCM
+        keyWrapAlgorithm:
+          type: string
+          example: RSA-OAEP
+        ciphertext:
+          type: string
+          example: base64-ciphertext
+        nonce:
+          type: string
+          example: base64-nonce
+        senderKeyId:
+          type: string
+          example: alice-browser-key
+        senderMessageKeyEnvelope:
+          type: string
+          description: Wrapped symmetric message key for the sender's own browser key
+          example: base64-sender-envelope
+        recipientKeyId:
+          type: string
+          example: bob-browser-key
+        recipientMessageKeyEnvelope:
+          type: string
+          description: Wrapped symmetric message key for the recipient browser key
+          example: base64-recipient-envelope
 
     MessageRecord:
       type: object
@@ -421,6 +685,30 @@ components:
           type: string
           description: Server-side message timestamp
           example: '2026-04-10T12:34:56Z'
+
+    PrivateMessageView:
+      type: object
+      required:
+        - chatId
+        - senderUsername
+        - chatType
+        - encryptedMessage
+        - timestamp
+      properties:
+        chatId:
+          type: integer
+          format: int64
+          example: 456
+        senderUsername:
+          type: string
+          example: alice@example.com
+        chatType:
+          $ref: '#/components/schemas/ChatType'
+        encryptedMessage:
+          $ref: '#/components/schemas/EncryptedPrivateMessagePayload'
+        timestamp:
+          type: string
+          example: '2026-04-20T12:00:00Z'
 
     User:
       type: object

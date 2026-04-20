@@ -98,8 +98,14 @@ export function sendWebSocketCommand(
   socket.send(JSON.stringify(normalizeOutgoingCommand(payload)))
 }
 
-export async function fetchChats(serverUrl: string, accessToken: string): Promise<ChatSummary[]> {
-  const response = await fetch(buildUrl(serverUrl, '/chats'), {
+export async function fetchChats(
+  serverUrl: string,
+  accessToken: string,
+  keyId?: string | null,
+): Promise<ChatSummary[]> {
+  const response = await fetch(buildUrl(serverUrl, '/chats', {
+    keyId: keyId?.trim() || undefined,
+  }), {
     headers: buildJsonHeaders(accessToken),
   })
 

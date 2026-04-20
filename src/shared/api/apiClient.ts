@@ -48,15 +48,34 @@ export async function parseJsonResponse<T>(
   response: Response,
   fallbackMessage: string,
 ): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as T | ErrorResponse | null
+  let rawBody = ''
+  let payload: T | ErrorResponse | null = null
+
+  if (typeof response.text === 'function') {
+    rawBody = await response.text().catch(() => '')
+
+    if (rawBody) {
+      try {
+        payload = JSON.parse(rawBody) as T | ErrorResponse
+      } catch {
+        payload = null
+      }
+    }
+  } else {
+    payload = (await response.json().catch(() => null)) as T | ErrorResponse | null
+  }
 
   if (!response.ok) {
     const message =
       payload && typeof payload === 'object' && 'error' in payload
         ? payload.error
-        : fallbackMessage
+        : rawBody.trim() || fallbackMessage
 
     throw new ApiError(message, response.status)
+  }
+
+  if (!payload) {
+    throw new ApiError(rawBody.trim() || fallbackMessage, response.status)
   }
 
   return payload as T

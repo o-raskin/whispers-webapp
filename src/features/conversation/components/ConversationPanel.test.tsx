@@ -35,6 +35,7 @@ describe('ConversationPanel', () => {
 
   function renderConversationPanel({
     callPhase = 'idle',
+    chatType = null,
     isHistoryLoading = false,
     isMobileLayout = false,
     messageDraft = '',
@@ -44,12 +45,15 @@ describe('ConversationPanel', () => {
     onEndCall = vi.fn(),
     onMessageDraftChange = vi.fn(),
     onSendMessage = vi.fn(),
+    onSetUpPrivateChatBrowser = vi.fn(),
     onStartCall = vi.fn(),
     pendingParticipantName = null,
+    privateChatState = null,
     remoteTypingLabel = null,
     selectedThread = thread,
   }: {
     callPhase?: CallPhase
+    chatType?: 'PRIVATE' | null
     isHistoryLoading?: boolean
     isMobileLayout?: boolean
     messageDraft?: string
@@ -59,13 +63,19 @@ describe('ConversationPanel', () => {
     onEndCall?: () => void
     onMessageDraftChange?: (value: string) => void
     onSendMessage?: () => void
+    onSetUpPrivateChatBrowser?: () => void
     onStartCall?: () => void
     pendingParticipantName?: string | null
+    privateChatState?: {
+      accessState: 'idle' | 'loading' | 'ready' | 'missing-key' | 'setting-up' | 'error'
+      notice: string | null
+    } | null
     remoteTypingLabel?: string | null
     selectedThread?: ChatThread | null
   }) {
     return render(
       <ConversationPanel
+        chatType={chatType}
         participantProfile={
           selectedThread
             ? {
@@ -95,7 +105,9 @@ describe('ConversationPanel', () => {
         onDeclineCall={onDeclineCall}
         onEndCall={onEndCall}
         onSendMessage={onSendMessage}
+        onSetUpPrivateChatBrowser={onSetUpPrivateChatBrowser}
         onStartCall={onStartCall}
+        privateChatState={privateChatState}
       />,
     )
   }
@@ -189,6 +201,7 @@ describe('ConversationPanel', () => {
 
     rerender(
       <ConversationPanel
+        chatType={null}
         participantProfile={{
           username: 'bob',
           firstName: 'Bob',
@@ -213,7 +226,9 @@ describe('ConversationPanel', () => {
         onDeclineCall={vi.fn()}
         onEndCall={onEndCall}
         onSendMessage={vi.fn()}
+        onSetUpPrivateChatBrowser={vi.fn()}
         onStartCall={vi.fn()}
+        privateChatState={null}
       />,
     )
 
@@ -244,6 +259,30 @@ describe('ConversationPanel', () => {
     expect(screen.getByText('Hi Bob')).toBeInTheDocument()
     expect(screen.queryByLabelText('Loading conversation')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start audio call' })).toBeEnabled()
+  })
+
+  test('shows private browser recovery messaging and disables unsupported actions', async () => {
+    const userEventApi = userEvent.setup()
+    const onSetUpPrivateChatBrowser = vi.fn()
+
+    renderConversationPanel({
+      chatType: 'PRIVATE',
+      privateChatState: {
+        accessState: 'missing-key',
+        notice:
+          'This browser does not have the saved private key, so older private messages stay locked here.',
+      },
+      onSetUpPrivateChatBrowser,
+    })
+
+    expect(screen.getByText('Private chat')).toBeInTheDocument()
+    expect(screen.getByText(/saved private key/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Audio calls are unavailable in private chats' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+
+    await userEventApi.click(screen.getByRole('button', { name: 'Set up this browser' }))
+
+    expect(onSetUpPrivateChatBrowser).toHaveBeenCalledTimes(1)
   })
 
   test('sends on enter and inserts emoji into the draft at the cursor position', async () => {

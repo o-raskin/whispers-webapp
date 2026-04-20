@@ -42,6 +42,25 @@ const apiMocks = vi.hoisted(() => ({
   ),
 }))
 
+const privateApiMocks = vi.hoisted(() => ({
+  mockCreatePrivateChat: vi.fn(),
+  mockFetchPrivateChat: vi.fn(),
+  mockFetchPrivateMessages: vi.fn(),
+}))
+
+const privateServiceMocks = vi.hoisted(() => ({
+  mockEnsureRegisteredPrivateChatBrowserIdentity: vi.fn(),
+  mockIsPrivateChatSupported: vi.fn(() => true),
+  mockLoadPrivateChatBrowserIdentity: vi.fn(),
+  mockRegisterPrivateChatBrowserIdentity: vi.fn(),
+}))
+
+const privateCryptoMocks = vi.hoisted(() => ({
+  mockDecryptPrivateMessage: vi.fn(),
+  mockEncryptPrivateMessage: vi.fn(),
+  mockImportPrivateChatPublicKey: vi.fn(),
+}))
+
 const authMocks = vi.hoisted(() => ({
   mockFetchCurrentUser: vi.fn(),
   mockLoginWithProvider: vi.fn(),
@@ -58,6 +77,26 @@ vi.mock('../shared/api/chatApi', () => ({
   fetchUserProfile: apiMocks.mockFetchUserProfile,
   fetchUsers: apiMocks.mockFetchUsers,
   sendWebSocketCommand: apiMocks.mockSendWebSocketCommand,
+}))
+
+vi.mock('../shared/api/privateChatApi', () => ({
+  createPrivateChat: privateApiMocks.mockCreatePrivateChat,
+  fetchPrivateChat: privateApiMocks.mockFetchPrivateChat,
+  fetchPrivateMessages: privateApiMocks.mockFetchPrivateMessages,
+}))
+
+vi.mock('../shared/private-chat/privateChatService', () => ({
+  ensureRegisteredPrivateChatBrowserIdentity:
+    privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity,
+  isPrivateChatSupported: privateServiceMocks.mockIsPrivateChatSupported,
+  loadPrivateChatBrowserIdentity: privateServiceMocks.mockLoadPrivateChatBrowserIdentity,
+  registerPrivateChatBrowserIdentity: privateServiceMocks.mockRegisterPrivateChatBrowserIdentity,
+}))
+
+vi.mock('../shared/private-chat/privateChatCrypto', () => ({
+  decryptPrivateMessage: privateCryptoMocks.mockDecryptPrivateMessage,
+  encryptPrivateMessage: privateCryptoMocks.mockEncryptPrivateMessage,
+  importPrivateChatPublicKey: privateCryptoMocks.mockImportPrivateChatPublicKey,
 }))
 
 vi.mock('../shared/api/authApi', () => ({
@@ -119,31 +158,39 @@ vi.mock('../features/welcome/components/WelcomeExperience', () => ({
 vi.mock('../features/chat-list/components/ChatSidebar', () => ({
   ChatSidebar: ({
     chats,
+    isPrivateChatAvailable,
     users,
     selectedChatId,
     newChatUserId,
     onNewChatUserIdChange,
-    onCreateChat,
+    onCreateDirectChat,
+    onCreatePrivateChat,
     onSelectChat,
   }: {
-    chats: Array<{ chatId: string; username: string; unreadCount?: number }>
+    chats: Array<{ chatId: string; username: string; unreadCount?: number; type?: string }>
+    isPrivateChatAvailable: boolean
     users: Record<string, { username: string }>
     selectedChatId: string | null
     newChatUserId: string
     onNewChatUserIdChange: (value: string) => void
-    onCreateChat: () => void
+    onCreateDirectChat: () => void
+    onCreatePrivateChat: () => void
     onSelectChat: (chatId: string) => void
   }) => (
     <div data-testid="sidebar">
       <div data-testid="selected-chat">{selectedChatId ?? 'none'}</div>
       <div data-testid="known-users">{Object.keys(users).join(',')}</div>
+      <div data-testid="private-available">{isPrivateChatAvailable ? 'yes' : 'no'}</div>
       <input
         aria-label="new chat user"
         value={newChatUserId}
         onChange={(event) => onNewChatUserIdChange(event.target.value)}
       />
-      <button type="button" onClick={onCreateChat}>
+      <button type="button" onClick={onCreateDirectChat}>
         create chat
+      </button>
+      <button type="button" onClick={onCreatePrivateChat}>
+        create private chat
       </button>
       {chats.map((chat) => (
         <button
@@ -161,9 +208,12 @@ vi.mock('../features/chat-list/components/ChatSidebar', () => ({
 vi.mock('../features/conversation/components/ConversationPanel', () => ({
   ConversationPanel: ({
     callPhase,
+    chatType,
     connectionStatus,
     localCallStream,
+    onSetUpPrivateChatBrowser,
     thread,
+    privateChatState,
     onAcceptCall,
     remoteTypingLabel,
     onDeclineCall,
@@ -173,11 +223,15 @@ vi.mock('../features/conversation/components/ConversationPanel', () => ({
     onBackToInbox,
     onSendMessage,
     onStartCall,
+    participantProfile,
     remoteCallStream,
   }: {
     callPhase: string
+    chatType: string | null
     connectionStatus: string
     localCallStream: MediaStream | null
+    onSetUpPrivateChatBrowser: () => void
+    privateChatState: { accessState: string; notice: string | null } | null
     thread: { participant: string; messages: Array<{ text: string }> } | null
     remoteTypingLabel: string | null
     onAcceptCall: () => void
@@ -188,10 +242,22 @@ vi.mock('../features/conversation/components/ConversationPanel', () => ({
     onBackToInbox: () => void
     onSendMessage: () => void
     onStartCall: () => void
+    participantProfile: {
+      firstName?: string | null
+      lastName?: string | null
+      username: string
+    } | null
     remoteCallStream: MediaStream | null
   }) => (
     <div data-testid="conversation">
       <div data-testid="participant">{thread?.participant ?? 'none'}</div>
+      <div data-testid="participant-profile-name">
+        {participantProfile
+          ? [participantProfile.firstName, participantProfile.lastName]
+              .filter(Boolean)
+              .join(' ') || participantProfile.username
+          : 'none'}
+      </div>
       <div data-testid="message-count">{thread?.messages.length ?? 0}</div>
       <div data-testid="last-message">
         {thread?.messages.at(-1)?.text ?? 'no-messages'}
@@ -201,6 +267,9 @@ vi.mock('../features/conversation/components/ConversationPanel', () => ({
       <div data-testid="local-stream">{localCallStream ? 'yes' : 'no'}</div>
       <div data-testid="remote-stream">{remoteCallStream ? 'yes' : 'no'}</div>
       <div data-testid="connection-status">{connectionStatus}</div>
+      <div data-testid="chat-type">{chatType ?? 'none'}</div>
+      <div data-testid="private-state">{privateChatState?.accessState ?? 'none'}</div>
+      <div data-testid="private-notice">{privateChatState?.notice ?? 'none'}</div>
       <input
         aria-label="draft"
         value={messageDraft}
@@ -220,6 +289,9 @@ vi.mock('../features/conversation/components/ConversationPanel', () => ({
       </button>
       <button type="button" onClick={onSendMessage}>
         send message
+      </button>
+      <button type="button" onClick={onSetUpPrivateChatBrowser}>
+        set up private chat
       </button>
       <button type="button" onClick={onBackToInbox}>
         back to inbox
@@ -267,6 +339,100 @@ describe('App', () => {
     })
     authMocks.mockLoginWithProvider.mockReset()
     authMocks.mockLogoutCurrentSession.mockReset()
+    privateApiMocks.mockCreatePrivateChat.mockReset()
+    privateApiMocks.mockFetchPrivateChat.mockReset()
+    privateApiMocks.mockFetchPrivateMessages.mockReset()
+    privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity.mockReset()
+    privateServiceMocks.mockIsPrivateChatSupported.mockReset()
+    privateServiceMocks.mockLoadPrivateChatBrowserIdentity.mockReset()
+    privateServiceMocks.mockRegisterPrivateChatBrowserIdentity.mockReset()
+    privateCryptoMocks.mockDecryptPrivateMessage.mockReset()
+    privateCryptoMocks.mockEncryptPrivateMessage.mockReset()
+    privateCryptoMocks.mockImportPrivateChatPublicKey.mockReset()
+
+    privateServiceMocks.mockIsPrivateChatSupported.mockReturnValue(true)
+    privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity.mockResolvedValue({
+      identity: {
+        ownerId: 'alice',
+        keyId: 'alice-browser-key',
+        publicKey: {} as CryptoKey,
+        privateKey: {} as CryptoKey,
+        publicKeyBase64: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      status: 'existing',
+      registeredKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateServiceMocks.mockLoadPrivateChatBrowserIdentity.mockResolvedValue({
+      ownerId: 'alice',
+      keyId: 'alice-browser-key',
+      publicKey: {} as CryptoKey,
+      privateKey: {} as CryptoKey,
+      publicKeyBase64: 'alice-public-key',
+      algorithm: 'RSA-OAEP',
+      format: 'spki',
+      createdAt: '2026-04-20T10:00:00Z',
+      updatedAt: '2026-04-20T10:00:00Z',
+    })
+    privateServiceMocks.mockRegisterPrivateChatBrowserIdentity.mockResolvedValue({
+      keyId: 'alice-browser-key',
+      publicKey: 'alice-public-key',
+      algorithm: 'RSA-OAEP',
+      format: 'spki',
+      status: 'ACTIVE',
+      createdAt: '2026-04-20T10:00:00Z',
+      updatedAt: '2026-04-20T10:00:00Z',
+    })
+    privateApiMocks.mockFetchPrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'bob',
+      type: 'PRIVATE',
+      currentUserKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      counterpartKey: {
+        keyId: 'bob-browser-key',
+        publicKey: 'bob-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateCryptoMocks.mockDecryptPrivateMessage.mockResolvedValue({
+      status: 'decrypted',
+      text: 'Decrypted hello',
+    })
+    privateCryptoMocks.mockImportPrivateChatPublicKey.mockResolvedValue({} as CryptoKey)
+    privateCryptoMocks.mockEncryptPrivateMessage.mockResolvedValue({
+      protocolVersion: 'v1',
+      encryptionAlgorithm: 'AES-GCM',
+      keyWrapAlgorithm: 'RSA-OAEP',
+      ciphertext: 'ciphertext',
+      nonce: 'nonce',
+      senderKeyId: 'alice-browser-key',
+      senderMessageKeyEnvelope: 'sender-envelope',
+      recipientKeyId: 'bob-browser-key',
+      recipientMessageKeyEnvelope: 'recipient-envelope',
+    })
   })
 
   afterEach(() => {
@@ -283,6 +449,16 @@ describe('App', () => {
     authMocks.mockLoginWithProvider.mockReset()
     authMocks.mockLogoutCurrentSession.mockReset()
     authMocks.mockRefreshSession.mockReset()
+    privateApiMocks.mockCreatePrivateChat.mockReset()
+    privateApiMocks.mockFetchPrivateChat.mockReset()
+    privateApiMocks.mockFetchPrivateMessages.mockReset()
+    privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity.mockReset()
+    privateServiceMocks.mockIsPrivateChatSupported.mockReset()
+    privateServiceMocks.mockLoadPrivateChatBrowserIdentity.mockReset()
+    privateServiceMocks.mockRegisterPrivateChatBrowserIdentity.mockReset()
+    privateCryptoMocks.mockDecryptPrivateMessage.mockReset()
+    privateCryptoMocks.mockEncryptPrivateMessage.mockReset()
+    privateCryptoMocks.mockImportPrivateChatPublicKey.mockReset()
   })
 
   test('hides the welcome overlay after authentication even before websocket open', async () => {
@@ -293,6 +469,18 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('welcome')).not.toBeInTheDocument()
       expect(screen.getByTestId('sidebar')).toBeInTheDocument()
+    })
+  })
+
+  test('publishes the private browser key during authenticated bootstrap', async () => {
+    render(<App />)
+
+    await connectAuthenticatedWorkspace()
+
+    await waitFor(() => {
+      expect(
+        privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity,
+      ).toHaveBeenCalledWith(DEFAULT_WS_URL, 'access-token', 'alice')
     })
   })
 
@@ -323,6 +511,7 @@ describe('App', () => {
       expect(apiMocks.mockFetchChats).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
         'access-token',
+        'alice-browser-key',
       )
       expect(apiMocks.mockFetchUsers).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
@@ -484,6 +673,246 @@ describe('App', () => {
     await waitFor(() => {
       expect(screen.getByTestId('connection-status')).toHaveTextContent('disconnected')
       expect(screen.getByTestId('selected-chat')).toHaveTextContent('none')
+    })
+  })
+
+  test('creates private chats and sends encrypted websocket payloads', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockImplementation(async () =>
+      privateApiMocks.mockCreatePrivateChat.mock.calls.length > 0
+        ? [{ chatId: 'private-chat-1', username: 'private-bob', type: 'PRIVATE' }]
+        : [],
+    )
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'private-bob', lastPingTime: null }])
+    privateApiMocks.mockCreatePrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'private-bob',
+      type: 'PRIVATE',
+      firstName: null,
+      lastName: null,
+      profileUrl: null,
+    })
+    privateApiMocks.mockFetchPrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'private-bob',
+      type: 'PRIVATE',
+      currentUserKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      counterpartKey: {
+        keyId: 'bob-browser-key',
+        publicKey: 'bob-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateApiMocks.mockFetchPrivateMessages.mockResolvedValue([])
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await user.type(screen.getByLabelText('new chat user'), 'private-bob')
+    await user.click(screen.getByRole('button', { name: 'create private chat' }))
+
+    await waitFor(() => {
+      expect(privateApiMocks.mockCreatePrivateChat).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'private-bob',
+        'alice-browser-key',
+      )
+      expect(screen.getByTestId('selected-chat')).toHaveTextContent('private-chat-1')
+    })
+
+    expect(
+      privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity,
+    ).toHaveBeenCalledTimes(1)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-type')).toHaveTextContent('PRIVATE')
+      expect(screen.getByTestId('private-state')).toHaveTextContent('ready')
+    })
+
+    await user.type(screen.getByLabelText('draft'), 'top secret')
+    await user.click(screen.getByRole('button', { name: 'send message' }))
+
+    await waitFor(() => {
+      expect(privateCryptoMocks.mockEncryptPrivateMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: 'top secret',
+          recipientKeyId: 'bob-browser-key',
+        }),
+      )
+    })
+
+    expect(apiMocks.mockSendWebSocketCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ send: expect.any(Function) }),
+      expect.objectContaining({
+        type: 'PRIVATE_MESSAGE',
+        chatId: 'private-chat-1',
+        privateMessage: expect.objectContaining({
+          ciphertext: 'ciphertext',
+          recipientKeyId: 'bob-browser-key',
+          senderKeyId: 'alice-browser-key',
+        }),
+      }),
+    )
+  })
+
+  test('enriches private chat participant info the same way as direct chats', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([
+      { chatId: 'private-chat-1', username: 'bob', type: 'PRIVATE' },
+    ])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    privateApiMocks.mockFetchPrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'bob',
+      type: 'PRIVATE',
+      currentUserKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      counterpartKey: {
+        keyId: 'bob-browser-key',
+        publicKey: 'bob-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateApiMocks.mockFetchPrivateMessages.mockResolvedValue([])
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(apiMocks.mockFetchUserProfile).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'bob',
+      )
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:0' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('participant-profile-name')).toHaveTextContent('Bob Example')
+      expect(screen.getByTestId('chat-type')).toHaveTextContent('PRIVATE')
+    })
+  })
+
+  test('shows a recovery state when the private browser key is missing', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([
+      { chatId: 'private-chat-1', username: 'private-bob', type: 'PRIVATE' },
+    ])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'private-bob', lastPingTime: null }])
+    privateServiceMocks.mockLoadPrivateChatBrowserIdentity.mockResolvedValue(null)
+    privateApiMocks.mockFetchPrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'private-bob',
+      type: 'PRIVATE',
+      currentUserKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      counterpartKey: {
+        keyId: 'bob-browser-key',
+        publicKey: 'bob-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateApiMocks.mockFetchPrivateMessages.mockResolvedValue([
+      {
+        chatId: 'private-chat-1',
+        senderUserId: 'private-bob',
+        chatType: 'PRIVATE',
+        encryptedMessage: {
+          protocolVersion: 'v1',
+          encryptionAlgorithm: 'AES-GCM',
+          keyWrapAlgorithm: 'RSA-OAEP',
+          ciphertext: 'ciphertext',
+          nonce: 'nonce',
+          senderKeyId: 'bob-browser-key',
+          senderMessageKeyEnvelope: 'sender-envelope',
+          recipientKeyId: 'alice-browser-key',
+          recipientMessageKeyEnvelope: 'recipient-envelope',
+        },
+        timestamp: '2026-04-20T10:01:00Z',
+      },
+    ])
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:private-bob:0')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:private-bob:0' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chat-type')).toHaveTextContent('PRIVATE')
+      expect(screen.getByTestId('private-state')).toHaveTextContent('missing-key')
+      expect(screen.getByTestId('private-notice')).toHaveTextContent(
+        /does not have the saved private key/i,
+      )
+      expect(screen.getByTestId('last-message')).toHaveTextContent('no-messages')
+    })
+
+    expect(privateApiMocks.mockFetchPrivateMessages).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'set up private chat' }))
+
+    await waitFor(() => {
+      expect(privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'alice',
+      )
+      expect(privateApiMocks.mockFetchPrivateMessages).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'private-chat-1',
+        'alice-browser-key',
+      )
+      expect(screen.getByTestId('private-state')).toHaveTextContent('ready')
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Decrypted hello')
     })
   })
 

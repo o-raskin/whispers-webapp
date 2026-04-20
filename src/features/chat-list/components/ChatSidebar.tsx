@@ -16,12 +16,14 @@ export interface ChatSidebarProps {
   currentUser: AuthUserProfile | null
   currentUserId: string
   chats: ChatSummary[]
+  isPrivateChatAvailable: boolean
   selectedChatId: string | null
   users: Record<string, UserPresence>
   status: ConnectionStatus
   newChatUserId: string
   onNewChatUserIdChange: (value: string) => void
-  onCreateChat: () => void
+  onCreateDirectChat: () => void
+  onCreatePrivateChat: () => void
   onSelectChat: (chatId: string) => void
   onDisconnect: () => void
 }
@@ -30,12 +32,14 @@ export function ChatSidebar({
   currentUser,
   currentUserId,
   chats,
+  isPrivateChatAvailable,
   selectedChatId,
   users,
   status,
   newChatUserId,
   onNewChatUserIdChange,
-  onCreateChat,
+  onCreateDirectChat,
+  onCreatePrivateChat,
   onSelectChat,
   onDisconnect,
 }: ChatSidebarProps) {
@@ -60,8 +64,10 @@ export function ChatSidebar({
       />
 
       <ChatSidebarCreateChat
+        isPrivateChatAvailable={isPrivateChatAvailable}
         newChatUserId={newChatUserId}
-        onCreateChat={onCreateChat}
+        onCreateDirectChat={onCreateDirectChat}
+        onCreatePrivateChat={onCreatePrivateChat}
         onNewChatUserIdChange={onNewChatUserIdChange}
       />
 

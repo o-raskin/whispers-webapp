@@ -34,7 +34,7 @@ describe('chatApi', () => {
     expect(socket.send).toHaveBeenCalledWith('{"type":"PRESENCE"}')
   })
 
-  test('fetches chats over the matching HTTP base URL', async () => {
+  test('fetches chats over the matching HTTP base URL with an optional browser key id', async () => {
     const chats: ChatSummary[] = [
       {
         chatId: 'chat-1',
@@ -50,12 +50,12 @@ describe('chatApi', () => {
       json: vi.fn().mockResolvedValue(chats),
     })
 
-    await expect(fetchChats('ws://192.168.0.10:8080/ws/user', 'access-token')).resolves.toEqual(
-      chats,
-    )
+    await expect(
+      fetchChats('ws://192.168.0.10:8080/ws/user', 'access-token', 'alice-browser-key'),
+    ).resolves.toEqual(chats)
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://192.168.0.10:8080/chats',
+      'http://192.168.0.10:8080/chats?keyId=alice-browser-key',
       expect.objectContaining({
         headers: {
           Accept: 'application/json',

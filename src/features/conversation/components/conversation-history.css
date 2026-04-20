@@ -181,6 +181,27 @@
   text-transform: uppercase;
 }
 
+.message-meta-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.message-private-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.48rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 214, 138, 0.16);
+  background: rgba(255, 214, 138, 0.08);
+  color: #ffe8ba;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .message-body {
   min-width: 0;
 }
@@ -219,6 +240,25 @@
 
 .message.received .message-timestamp {
   color: rgba(231, 239, 255, 0.48);
+}
+
+.message.private-decrypted.sent {
+  background:
+    linear-gradient(135deg, rgba(123, 169, 255, 0.95), rgba(255, 189, 104, 0.9));
+}
+
+.message.private-missing-key,
+.message.private-error {
+  background:
+    linear-gradient(180deg, rgba(255, 214, 138, 0.08), rgba(255, 255, 255, 0.04)),
+    radial-gradient(circle at top left, rgba(255, 214, 138, 0.14), transparent 68%);
+  border: 1px solid rgba(255, 214, 138, 0.16);
+  color: #ffe7bb;
+}
+
+.message.private-error {
+  border-color: rgba(255, 171, 171, 0.2);
+  color: #ffd6d6;
 }
 
 .message.system {

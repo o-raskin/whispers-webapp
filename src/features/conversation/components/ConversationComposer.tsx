@@ -10,7 +10,12 @@ interface ConversationComposerProps {
   isComposerFocused: boolean
   isDrafting: boolean
   isEmojiPickerOpen: boolean
+  isPrivateChat: boolean
   messageDraft: string
+  privateChatState: {
+    accessState: 'idle' | 'loading' | 'ready' | 'missing-key' | 'setting-up' | 'error'
+    notice: string | null
+  } | null
   textareaRef: RefObject<HTMLTextAreaElement | null>
   thread: ChatThread | null
   onBlur: () => void
@@ -27,7 +32,9 @@ export function ConversationComposer({
   isComposerFocused,
   isDrafting,
   isEmojiPickerOpen,
+  isPrivateChat,
   messageDraft,
+  privateChatState,
   textareaRef,
   thread,
   onBlur,
@@ -37,6 +44,34 @@ export function ConversationComposer({
   onSubmit,
   onToggleEmojiPicker,
 }: ConversationComposerProps) {
+  const privateChatAccessState = privateChatState?.accessState ?? 'idle'
+  const isPrivateComposerLocked =
+    isPrivateChat &&
+    (
+      privateChatAccessState === 'missing-key' ||
+      privateChatAccessState === 'setting-up' ||
+      privateChatAccessState === 'error'
+    )
+  const isComposerDisabled = !thread || connectionStatus !== 'connected' || isPrivateComposerLocked
+  const composerPlaceholder = !thread
+    ? 'Choose a conversation to start typing'
+    : isPrivateChat
+      ? privateChatAccessState === 'ready'
+        ? `Send a private message to ${thread.participant}`
+        : privateChatAccessState === 'setting-up'
+          ? 'Preparing private access for this browser'
+          : 'Set up this browser to send private messages'
+      : `Send a message to ${thread.participant}`
+  const composerMeta = !thread
+    ? 'Channel idle'
+    : isPrivateChat
+      ? privateChatAccessState === 'ready'
+        ? 'End-to-end encrypted in this browser'
+        : privateChatAccessState === 'setting-up'
+          ? 'Preparing secure browser key...'
+          : 'Set up this browser to send new private messages'
+      : 'Shift+Enter for newline'
+
   return (
     <motion.form
       className={`composer-panel ${isComposerFocused ? 'is-focused' : ''} ${isDrafting ? 'is-drafting' : ''}`}
@@ -60,11 +95,7 @@ export function ConversationComposer({
             <textarea
               id="messageText"
               ref={textareaRef}
-              placeholder={
-                thread
-                  ? `Send a message to ${thread.participant}`
-                  : 'Choose a conversation to start typing'
-              }
+              placeholder={composerPlaceholder}
               value={messageDraft}
               onChange={onChange}
               onKeyDown={onKeyDown}
@@ -72,18 +103,18 @@ export function ConversationComposer({
               onBlur={onBlur}
               enterKeyHint="send"
               rows={3}
-              disabled={!thread}
+              disabled={isComposerDisabled}
             />
             <motion.button
               className={`composer-emoji-button ${isEmojiPickerOpen ? 'is-open' : ''}`}
               type="button"
               aria-label="Choose emoji"
-              disabled={!thread}
-              whileHover={!thread ? undefined : { y: -1, scale: 1.01 }}
-              whileTap={!thread ? undefined : { scale: 0.97 }}
+              disabled={isComposerDisabled}
+              whileHover={isComposerDisabled ? undefined : { y: -1, scale: 1.01 }}
+              whileTap={isComposerDisabled ? undefined : { scale: 0.97 }}
               transition={springTransition}
               onClick={() => {
-                if (!thread) {
+                if (isComposerDisabled) {
                   return
                 }
 
@@ -95,20 +126,18 @@ export function ConversationComposer({
               </span>
             </motion.button>
             <AnimatePresence>
-              {isEmojiPickerOpen && thread ? desktopEmojiPicker : null}
+              {isEmojiPickerOpen && thread && !isComposerDisabled ? desktopEmojiPicker : null}
             </AnimatePresence>
           </div>
           <motion.button
             className="send-button"
             type="submit"
             aria-label="Send message"
-            disabled={!thread || connectionStatus !== 'connected'}
+            disabled={isComposerDisabled}
             whileHover={
-              !thread || connectionStatus !== 'connected'
-                ? undefined
-                : { y: -2, scale: 1.01 }
+              isComposerDisabled ? undefined : { y: -2, scale: 1.01 }
             }
-            whileTap={!thread || connectionStatus !== 'connected' ? undefined : { scale: 0.985 }}
+            whileTap={isComposerDisabled ? undefined : { scale: 0.985 }}
             transition={springTransition}
           >
             <svg
@@ -125,7 +154,7 @@ export function ConversationComposer({
           </motion.button>
         </div>
         <div className="composer-meta">
-          <span>{thread ? 'Shift+Enter for newline' : 'Channel idle'}</span>
+          <span>{composerMeta}</span>
         </div>
       </div>
     </motion.form>

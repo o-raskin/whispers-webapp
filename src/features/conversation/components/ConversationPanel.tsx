@@ -6,6 +6,7 @@ import type {
   CallPhase,
   ChatSummary,
   ChatThread,
+  ChatType,
   UserPresence,
 } from '../../../shared/types/chat'
 import {
@@ -20,15 +21,23 @@ import { ConversationComposer } from './ConversationComposer'
 import { ConversationEmojiPicker } from './ConversationEmojiPicker'
 import { ConversationHeader } from './ConversationHeader'
 import { ConversationHistory } from './ConversationHistory'
+import { ConversationPrivateBanner } from './ConversationPrivateBanner'
 import { useConversationComposer } from '../hooks/useConversationComposer'
 import { useConversationHistoryViewport } from '../hooks/useConversationHistoryViewport'
 import './conversation-shell.css'
 
+interface PrivateConversationState {
+  accessState: 'idle' | 'loading' | 'ready' | 'missing-key' | 'setting-up' | 'error'
+  notice: string | null
+}
+
 export interface ConversationPanelProps {
+  chatType: ChatType | null
   participantProfile?: Pick<
     ChatSummary,
     'firstName' | 'lastName' | 'profileUrl' | 'username'
   > | null
+  privateChatState: PrivateConversationState | null
   thread: ChatThread | null
   pendingParticipantName?: string | null
   user: UserPresence | null
@@ -48,11 +57,14 @@ export interface ConversationPanelProps {
   onDeclineCall: () => void
   onEndCall: () => void
   onSendMessage: () => void
+  onSetUpPrivateChatBrowser: () => void
   onStartCall: () => void
 }
 
 export function ConversationPanel({
+  chatType,
   participantProfile = null,
+  privateChatState,
   thread,
   pendingParticipantName = null,
   user,
@@ -72,10 +84,12 @@ export function ConversationPanel({
   onDeclineCall,
   onEndCall,
   onSendMessage,
+  onSetUpPrivateChatBrowser,
   onStartCall,
 }: ConversationPanelProps) {
   const localAudioRef = useRef<HTMLAudioElement | null>(null)
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null)
+  const isPrivateChat = chatType === 'PRIVATE'
   const isRecipientOnline = isUserOnline(user)
   const isRemoteTyping = Boolean(remoteTypingLabel)
   const pendingParticipant = pendingParticipantName?.trim() || null
@@ -95,18 +109,27 @@ export function ConversationPanel({
       : 'Welcome to Whispers'
 
   const subtitle = thread
-    ? isRecipientOnline
-      ? 'Online'
-      : `Last seen: ${formatPresenceLabel(user?.lastPingTime ?? null)}`
+    ? isPrivateChat
+      ? isRecipientOnline
+        ? 'Online in this private chat'
+        : `Private chat • Last seen: ${formatPresenceLabel(user?.lastPingTime ?? null)}`
+      : isRecipientOnline
+        ? 'Online'
+        : `Last seen: ${formatPresenceLabel(user?.lastPingTime ?? null)}`
     : isMobilePendingThread
       ? 'Loading messages...'
     : 'No chat selected'
-  const callButtonLabel = isActiveCallPhase ? 'End audio call' : 'Start audio call'
+  const callButtonLabel = isPrivateChat
+    ? 'Audio calls are unavailable in private chats'
+    : isActiveCallPhase
+      ? 'End audio call'
+      : 'Start audio call'
   const isCallButtonDisabled =
     !thread ||
     connectionStatus !== 'connected' ||
     showHistoryLoadingState ||
-    isIncomingCall
+    isIncomingCall ||
+    isPrivateChat
   const {
     closeEmojiPicker,
     handleChange,
@@ -166,6 +189,7 @@ export function ConversationPanel({
   return (
     <motion.section className="conversation" variants={sectionReveal}>
       <ConversationHeader
+        chatType={chatType}
         callButtonLabel={callButtonLabel}
         conversationTitle={conversationTitle}
         isActiveCallPhase={isActiveCallPhase}
@@ -179,6 +203,12 @@ export function ConversationPanel({
         thread={thread}
         onBackToInbox={onBackToInbox}
         onCallButtonClick={isActiveCallPhase ? onEndCall : onStartCall}
+      />
+
+      <ConversationPrivateBanner
+        isPrivateChat={isPrivateChat}
+        privateChatState={privateChatState}
+        onSetUpPrivateChatBrowser={onSetUpPrivateChatBrowser}
       />
 
       <ConversationCallBanner
@@ -212,7 +242,9 @@ export function ConversationPanel({
         isComposerFocused={isComposerFocused}
         isDrafting={isDrafting}
         isEmojiPickerOpen={isEmojiPickerOpen}
+        isPrivateChat={isPrivateChat}
         messageDraft={messageDraft}
+        privateChatState={privateChatState}
         textareaRef={textareaRef}
         thread={thread}
         onBlur={() => setIsComposerFocused(false)}

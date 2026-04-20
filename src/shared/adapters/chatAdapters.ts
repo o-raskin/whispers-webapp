@@ -1,4 +1,4 @@
-import type { ChatMessage, MessageRecord } from '../types/chat'
+import type { ChatMessage, MessageRecord, PrivateMessageRecord } from '../types/chat'
 
 export function toMessageId(message: MessageRecord): string {
   return `${message.chatId}-${message.senderUserId}-${message.timestamp}-${message.text}`
@@ -19,4 +19,14 @@ export function toChatMessage(
         ? ('sent' as const)
         : ('received' as const),
   }
+}
+
+export function toPrivateMessageId(message: PrivateMessageRecord): string {
+  return [
+    message.chatId,
+    message.senderUserId,
+    message.timestamp,
+    message.encryptedMessage.senderKeyId,
+    message.encryptedMessage.nonce,
+  ].join('-')
 }

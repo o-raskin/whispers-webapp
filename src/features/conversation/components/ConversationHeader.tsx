@@ -1,10 +1,11 @@
 import { motion } from 'framer-motion'
-import type { ChatSummary, ChatThread } from '../../../shared/types/chat'
+import type { ChatSummary, ChatThread, ChatType } from '../../../shared/types/chat'
 import { itemReveal, springTransition } from '../../../shared/motion/presets'
 import { getInitials } from './conversationPanelShared'
 import './conversation-header.css'
 
 interface ConversationHeaderProps {
+  chatType: ChatType | null
   callButtonLabel: string
   conversationTitle: string
   isActiveCallPhase: boolean
@@ -35,6 +36,7 @@ function getParticipantDisplayName(
 }
 
 export function ConversationHeader({
+  chatType,
   callButtonLabel,
   conversationTitle,
   isActiveCallPhase,
@@ -51,6 +53,7 @@ export function ConversationHeader({
 }: ConversationHeaderProps) {
   const participantDisplayName =
     getParticipantDisplayName(participantProfile) || pendingParticipant || thread?.participant || 'W'
+  const isPrivateChat = chatType === 'PRIVATE'
 
   return (
     <motion.div className="conversation-header" variants={itemReveal}>
@@ -94,7 +97,12 @@ export function ConversationHeader({
           )}
         </motion.div>
         <div className="conversation-copy">
-          <h2>{conversationTitle}</h2>
+          <div className="conversation-title-row">
+            <h2>{conversationTitle}</h2>
+            {isPrivateChat ? (
+              <span className="conversation-mode-chip">Private</span>
+            ) : null}
+          </div>
           <div className="conversation-subtitle">
             {isRemoteTyping ? (
               <span className="conversation-typing-status" aria-live="polite">
@@ -136,7 +144,13 @@ export function ConversationHeader({
         </motion.button>
         <div className="conversation-summary">
           <div className="conversation-stat">
-            {thread ? `${thread.messages.length} messages synced` : 'Realtime shell ready'}
+            {thread
+              ? isPrivateChat
+                ? `${thread.messages.length} encrypted messages synced`
+                : `${thread.messages.length} messages synced`
+              : isPrivateChat
+                ? 'Browser-tied private thread'
+                : 'Realtime shell ready'}
           </div>
         </div>
       </div>

@@ -61,6 +61,16 @@ export default defineConfig(({ mode }) => {
       changeOrigin: true,
       secure: false,
     },
+    '/public-keys': {
+      target: backendOrigin.origin,
+      changeOrigin: true,
+      secure: false,
+    },
+    '/private-chats': {
+      target: backendOrigin.origin,
+      changeOrigin: true,
+      secure: false,
+    },
     '/users': {
       target: backendOrigin.origin,
       changeOrigin: true,
