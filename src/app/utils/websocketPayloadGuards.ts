@@ -4,6 +4,10 @@ import type {
   TypingEvent,
 } from '../../shared/types/chat'
 
+export type WebSocketMessageRecordPayload = Omit<MessageRecord, 'chatId'> & {
+  chatId: string | number
+}
+
 export function isPresenceEvent(payload: unknown): payload is PresenceEvent {
   return (
     typeof payload === 'object' &&
@@ -33,7 +37,7 @@ export function hasTypedEventShape(
   return typeof payload === 'object' && payload !== null && 'type' in payload
 }
 
-export function isMessageRecord(payload: unknown): payload is MessageRecord {
+export function isMessageRecord(payload: unknown): payload is WebSocketMessageRecordPayload {
   if (typeof payload !== 'object' || payload === null) {
     return false
   }
@@ -46,7 +50,7 @@ export function isMessageRecord(payload: unknown): payload is MessageRecord {
   }
 
   return (
-    typeof record.chatId === 'string' &&
+    (typeof record.chatId === 'string' || typeof record.chatId === 'number') &&
     typeof record.senderUserId === 'string' &&
     typeof record.text === 'string' &&
     typeof record.timestamp === 'string'

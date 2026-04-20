@@ -3,6 +3,7 @@ import {
   createChat,
   fetchChats,
   fetchMessages,
+  fetchUserProfile,
   fetchUsers,
   sendWebSocketCommand,
 } from './chatApi'
@@ -19,9 +20,9 @@ describe('chatApi', () => {
     vi.unstubAllGlobals()
   })
 
-  test('builds a websocket url with the user id query param', () => {
-    expect(buildWebSocketUrl('ws://192.168.0.10:8080/ws/user', 'alice')).toBe(
-      'ws://192.168.0.10:8080/ws/user?userId=alice',
+  test('builds a websocket url without legacy identity query params', () => {
+    expect(buildWebSocketUrl('ws://192.168.0.10:8080/ws/user')).toBe(
+      'ws://192.168.0.10:8080/ws/user',
     )
   })
 
@@ -34,40 +35,62 @@ describe('chatApi', () => {
   })
 
   test('fetches chats over the matching HTTP base URL', async () => {
-    const chats: ChatSummary[] = [{ chatId: 'chat-1', username: 'bob' }]
+    const chats: ChatSummary[] = [
+      {
+        chatId: 'chat-1',
+        username: 'bob',
+        type: 'DIRECT',
+        firstName: 'Bob',
+        lastName: 'Example',
+        profileUrl: 'https://example.com/bob.png',
+      },
+    ]
     fetchMock.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(chats),
     })
 
-    await expect(fetchChats('ws://192.168.0.10:8080/ws/user', 'alice')).resolves.toEqual(
+    await expect(fetchChats('ws://192.168.0.10:8080/ws/user', 'access-token')).resolves.toEqual(
       chats,
     )
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://192.168.0.10:8080/chats?userId=alice',
+      'http://192.168.0.10:8080/chats',
       expect.objectContaining({
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer access-token',
+        },
       }),
     )
   })
 
   test('creates chats with a post request and target user id', async () => {
-    const chat: ChatSummary = { chatId: 'chat-2', username: 'carol' }
+    const chat: ChatSummary = {
+      chatId: 'chat-2',
+      username: 'carol',
+      type: 'DIRECT',
+      firstName: 'Carol',
+      lastName: 'Example',
+      profileUrl: 'https://example.com/carol.png',
+    }
     fetchMock.mockResolvedValue({
       ok: true,
       json: vi.fn().mockResolvedValue(chat),
     })
 
     await expect(
-      createChat('wss://chat.example.com/ws/user', 'alice', 'carol'),
+      createChat('wss://chat.example.com/ws/user', 'access-token', 'carol'),
     ).resolves.toEqual(chat)
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://chat.example.com/chats?userId=alice&targetUserId=carol',
+      'https://chat.example.com/chats?targetUserId=carol',
       expect.objectContaining({
         method: 'POST',
-        headers: { Accept: 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer access-token',
+        },
       }),
     )
   })
@@ -121,5 +144,40 @@ describe('chatApi', () => {
     await expect(
       fetchMessages('ws://192.168.0.10:8080/ws/user', 'alice', 'chat-1'),
     ).resolves.toEqual(messages)
+  })
+
+  test('fetches a user profile by user id for direct chat enrichment', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        userId: 'user-2',
+        username: 'bob@example.com',
+        firstName: 'Bob',
+        lastName: 'Example',
+        profileUrl: 'https://example.com/bob.png',
+        provider: 'google',
+      }),
+    })
+
+    await expect(
+      fetchUserProfile('ws://192.168.0.10:8080/ws/user', 'access-token', 'bob@example.com'),
+    ).resolves.toEqual({
+      userId: 'user-2',
+      username: 'bob@example.com',
+      firstName: 'Bob',
+      lastName: 'Example',
+      profileUrl: 'https://example.com/bob.png',
+      provider: 'google',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://192.168.0.10:8080/users/bob%40example.com',
+      expect.objectContaining({
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer access-token',
+        },
+      }),
+    )
   })
 })

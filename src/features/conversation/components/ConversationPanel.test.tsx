@@ -66,6 +66,16 @@ describe('ConversationPanel', () => {
   }) {
     return render(
       <ConversationPanel
+        participantProfile={
+          selectedThread
+            ? {
+                username: 'bob',
+                firstName: 'Bob',
+                lastName: 'Example',
+                profileUrl: 'https://example.com/bob.png',
+              }
+            : null
+        }
         thread={selectedThread}
         pendingParticipantName={pendingParticipantName}
         user={selectedThread ? user : null}
@@ -135,9 +145,14 @@ describe('ConversationPanel', () => {
       remoteTypingLabel: 'bob',
     })
 
-    expect(screen.getByRole('heading', { name: 'bob' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Bob Example' })).toBeInTheDocument()
+    expect(screen.getByAltText('Bob Example')).toHaveAttribute(
+      'src',
+      'https://example.com/bob.png',
+    )
     expect(screen.getByRole('button', { name: 'Start audio call' })).toBeInTheDocument()
     expect(screen.getByText('typing')).toBeInTheDocument()
+    expect(screen.getAllByText('Bob Example')).toHaveLength(2)
     expect(screen.getByText('You')).toBeInTheDocument()
     expect(screen.getByText('Hello Alice')).toBeInTheDocument()
     expect(screen.getByText('Hi Bob')).toBeInTheDocument()
@@ -174,6 +189,12 @@ describe('ConversationPanel', () => {
 
     rerender(
       <ConversationPanel
+        participantProfile={{
+          username: 'bob',
+          firstName: 'Bob',
+          lastName: 'Example',
+          profileUrl: 'https://example.com/bob.png',
+        }}
         thread={thread}
         user={user}
         currentUserId="alice"

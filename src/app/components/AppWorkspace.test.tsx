@@ -29,6 +29,7 @@ vi.mock('../../features/event-log/components/EventLogPanel', () => ({
 
 const baseSidebarProps: ChatSidebarProps = {
   chats: [],
+  currentUser: null,
   currentUserId: 'alice',
   newChatUserId: '',
   onCreateChat: vi.fn(),

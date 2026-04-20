@@ -35,6 +35,16 @@ export default defineConfig(({ mode }) => {
   )
   const https = getHttpsConfig()
   const proxy = {
+    '^/auth/(refresh|me|logout)$': {
+      target: backendOrigin.origin,
+      changeOrigin: true,
+      secure: false,
+    },
+    '^/auth/[^/]+/login$': {
+      target: backendOrigin.origin,
+      changeOrigin: true,
+      secure: false,
+    },
     '/ws': {
       target: backendOrigin.origin,
       ws: true,

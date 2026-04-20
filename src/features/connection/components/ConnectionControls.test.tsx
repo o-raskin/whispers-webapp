@@ -3,62 +3,83 @@ import userEvent from '@testing-library/user-event'
 import { ConnectionControls } from './ConnectionControls'
 
 describe('ConnectionControls', () => {
-  test('updates fields and triggers connect and disconnect handlers', async () => {
+  test('shows the Google redirect CTA and authenticated actions', async () => {
     const user = userEvent.setup()
     const onServerUrlChange = vi.fn()
-    const onUserIdChange = vi.fn()
     const onConnect = vi.fn()
-    const onDisconnect = vi.fn()
+    const onLogout = vi.fn()
+    const onStartGoogleLogin = vi.fn()
 
     render(
       <ConnectionControls
+        authError={null}
+        authStatus="authenticated"
+        currentUser={{
+          userId: 'user-1',
+          username: 'alice',
+          email: 'alice@example.com',
+          displayName: 'Alice Example',
+          provider: 'google',
+        }}
+        providerLabel="Google"
+        providerRedirectEnabled
         serverUrl="ws://192.168.0.10:8080/ws/user"
-        userId="alice"
-        status="connecting"
+        status="disconnected"
         onServerUrlChange={onServerUrlChange}
-        onUserIdChange={onUserIdChange}
         onConnect={onConnect}
-        onDisconnect={onDisconnect}
+        onLogout={onLogout}
+        onStartGoogleLogin={onStartGoogleLogin}
       />,
     )
 
     fireEvent.change(screen.getByLabelText('Server URL'), {
       target: { value: 'ws://example.test/ws/user' },
     })
-    fireEvent.change(screen.getByLabelText('Your user ID'), {
-      target: { value: 'bob' },
-    })
-    await user.click(screen.getByRole('button', { name: 'Connect' }))
-    await user.click(screen.getByRole('button', { name: 'Disconnect' }))
+    await user.click(screen.getByRole('button', { name: /continue with google/i }))
+    await user.click(screen.getByRole('button', { name: 'Enter workspace' }))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
 
     expect(onServerUrlChange).toHaveBeenLastCalledWith('ws://example.test/ws/user')
-    expect(onUserIdChange).toHaveBeenLastCalledWith('bob')
+    expect(onStartGoogleLogin).toHaveBeenCalledTimes(1)
     expect(onConnect).toHaveBeenCalledTimes(1)
-    expect(onDisconnect).toHaveBeenCalledTimes(1)
+    expect(onLogout).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Alice Example')).toBeInTheDocument()
     expect(
-      screen.getByText('Establishing a secure realtime tunnel to your backend.'),
+      screen.getByText(
+        'Your identity is verified. Continue into the workspace or switch accounts if needed.',
+      ),
     ).toBeInTheDocument()
   })
 
-  test('can hide the status row and disconnect button', () => {
+  test('renders unauthenticated guidance and keeps redirect available', async () => {
+    const user = userEvent.setup()
+    const onStartGoogleLogin = vi.fn()
+
     render(
       <ConnectionControls
+        authError="Google redirect is not configured."
+        authStatus="unauthenticated"
+        currentUser={null}
+        providerLabel="Google"
+        providerRedirectEnabled={false}
         serverUrl="ws://192.168.0.10:8080/ws/user"
-        userId=""
         status="disconnected"
         onServerUrlChange={vi.fn()}
-        onUserIdChange={vi.fn()}
         onConnect={vi.fn()}
-        onDisconnect={vi.fn()}
+        onLogout={vi.fn()}
+        onStartGoogleLogin={onStartGoogleLogin}
         showStatusRow={false}
-        showDisconnect={false}
+        showLogout={false}
         idPrefix="welcome"
         layout="stacked"
       />,
     )
 
-    expect(screen.queryByText('Disconnect')).not.toBeInTheDocument()
-    expect(screen.queryByText(/unlock chats and live presence/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Enter workspace' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /continue with google/i }))
+    expect(onStartGoogleLogin).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Google redirect is not configured.')).toBeInTheDocument()
     expect(screen.getByLabelText('Server URL')).toHaveAttribute('id', 'welcome-server-url')
   })
 })

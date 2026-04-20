@@ -7,7 +7,7 @@ import {
   panelTransition,
 } from '../../../shared/motion/presets'
 import { formatChatListTimestamp, isUserOnline } from '../../../shared/utils/presence'
-import { getInitials } from './chatSidebarShared'
+import { getChatDisplayName, getInitials } from './chatSidebarShared'
 
 interface ChatSidebarListProps {
   chats: ChatSummary[]
@@ -74,6 +74,7 @@ export function ChatSidebarList({
                 const isActive = chat.chatId === selectedChatId
                 const isOnline = isUserOnline(users[chat.username])
                 const lastMessageTime = formatChatListTimestamp(chat.lastMessageTimestamp)
+                const displayName = getChatDisplayName(chat)
 
                 return (
                   <motion.button
@@ -101,9 +102,17 @@ export function ChatSidebarList({
                     ) : null}
                     <div className="chat-item-top">
                       <div className={`chat-avatar ${isOnline ? 'online' : ''}`}>
-                        {getInitials(chat.username)}
+                        {chat.profileUrl ? (
+                          <img
+                            className="chat-avatar-image"
+                            src={chat.profileUrl}
+                            alt={displayName}
+                          />
+                        ) : (
+                          getInitials(displayName)
+                        )}
                       </div>
-                      <div className="chat-item-title">{chat.username}</div>
+                      <div className="chat-item-title">{displayName}</div>
                       <div className="chat-item-preview">
                         {chat.preview || 'No messages yet.'}
                       </div>

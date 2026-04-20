@@ -19,12 +19,21 @@ import {
 } from './testUtils/realtimeAppTestUtils'
 
 const apiMocks = vi.hoisted(() => ({
-  mockBuildWebSocketUrl: vi.fn(
-    (serverUrl: string, userId: string) => `${serverUrl}?userId=${userId}`,
-  ),
+  mockBuildWebSocketProtocols: vi.fn((accessToken: string) => [
+    `whispers.bearer.${accessToken}`,
+  ]),
+  mockBuildWebSocketUrl: vi.fn((serverUrl: string) => serverUrl),
   mockCreateChat: vi.fn(),
   mockFetchChats: vi.fn(),
   mockFetchMessages: vi.fn(),
+  mockFetchUserProfile: vi.fn(async (_serverUrl: string, _accessToken: string, username: string) => ({
+    userId: `profile:${username}`,
+    username,
+    firstName: username === 'bob' ? 'Bob' : 'Carol',
+    lastName: 'Example',
+    profileUrl: `https://example.com/${username}.png`,
+    provider: 'google',
+  })),
   mockFetchUsers: vi.fn(),
   mockSendWebSocketCommand: vi.fn(
     (socket: { send: (payload: string) => void }, payload: unknown) => {
@@ -33,13 +42,29 @@ const apiMocks = vi.hoisted(() => ({
   ),
 }))
 
+const authMocks = vi.hoisted(() => ({
+  mockFetchCurrentUser: vi.fn(),
+  mockLoginWithProvider: vi.fn(),
+  mockLogoutCurrentSession: vi.fn(),
+  mockRefreshSession: vi.fn(),
+}))
+
 vi.mock('../shared/api/chatApi', () => ({
+  buildWebSocketProtocols: apiMocks.mockBuildWebSocketProtocols,
   buildWebSocketUrl: apiMocks.mockBuildWebSocketUrl,
   createChat: apiMocks.mockCreateChat,
   fetchChats: apiMocks.mockFetchChats,
   fetchMessages: apiMocks.mockFetchMessages,
+  fetchUserProfile: apiMocks.mockFetchUserProfile,
   fetchUsers: apiMocks.mockFetchUsers,
   sendWebSocketCommand: apiMocks.mockSendWebSocketCommand,
+}))
+
+vi.mock('../shared/api/authApi', () => ({
+  fetchCurrentUser: authMocks.mockFetchCurrentUser,
+  loginWithProvider: authMocks.mockLoginWithProvider,
+  logoutCurrentSession: authMocks.mockLogoutCurrentSession,
+  refreshSession: authMocks.mockRefreshSession,
 }))
 
 vi.mock('../features/connection/components/ConnectionPanel', () => ({
@@ -48,39 +73,44 @@ vi.mock('../features/connection/components/ConnectionPanel', () => ({
 
 vi.mock('../features/welcome/components/WelcomeExperience', () => ({
   WelcomeExperience: ({
+    authError,
+    authStatus,
+    currentUser,
     serverUrl,
-    userId,
     status,
     onServerUrlChange,
-    onUserIdChange,
     onConnect,
-    onDisconnect,
+    onLogout,
+    onStartGoogleLogin,
   }: {
+    authError: string | null
+    authStatus: string
+    currentUser: { email: string } | null
     serverUrl: string
-    userId: string
     status: string
     onServerUrlChange: (value: string) => void
-    onUserIdChange: (value: string) => void
     onConnect: () => void
-    onDisconnect: () => void
+    onLogout: () => void
+    onStartGoogleLogin: () => void
   }) => (
     <div data-testid="welcome">
+      <div data-testid="welcome-auth-status">{authStatus}</div>
       <div data-testid="welcome-status">{status}</div>
+      <div data-testid="welcome-user">{currentUser?.email ?? 'none'}</div>
+      {authError ? <div data-testid="welcome-auth-error">{authError}</div> : null}
       <input
         aria-label="welcome server url"
         value={serverUrl}
         onChange={(event) => onServerUrlChange(event.target.value)}
       />
-      <input
-        aria-label="welcome user id"
-        value={userId}
-        onChange={(event) => onUserIdChange(event.target.value)}
-      />
       <button type="button" onClick={onConnect}>
-        connect
+        connect workspace
       </button>
-      <button type="button" onClick={onDisconnect}>
-        disconnect
+      <button type="button" onClick={onStartGoogleLogin}>
+        continue with google
+      </button>
+      <button type="button" onClick={onLogout}>
+        sign out
       </button>
     </div>
   ),
@@ -208,29 +238,62 @@ vi.mock('../features/event-log/components/EventLogPanel', () => ({
   ),
 }))
 
-async function connectAsUser(
-  user: ReturnType<typeof userEvent.setup>,
-  userId = 'alice',
-) {
-  await user.type(screen.getByLabelText('welcome user id'), userId)
-  await user.click(screen.getByRole('button', { name: 'connect' }))
-
+async function connectAuthenticatedWorkspace() {
+  await waitFor(() => {
+    expect(getLatestMockWebSocket()).toBeDefined()
+  })
   return getLatestMockWebSocket()
 }
 
 describe('App', () => {
   beforeEach(() => {
     installRealtimeAppBrowserMocks()
+    authMocks.mockRefreshSession.mockResolvedValue({
+      accessToken: 'access-token',
+      tokenType: 'Bearer',
+      expiresInSeconds: 60 * 60,
+      user: {
+        userId: 'user-1',
+        username: 'alice',
+        email: 'alice@example.com',
+        provider: 'google',
+      },
+    })
+    authMocks.mockFetchCurrentUser.mockResolvedValue({
+      userId: 'user-1',
+      username: 'alice',
+      email: 'alice@example.com',
+      provider: 'google',
+    })
+    authMocks.mockLoginWithProvider.mockReset()
+    authMocks.mockLogoutCurrentSession.mockReset()
   })
 
   afterEach(() => {
     resetRealtimeAppBrowserMocks()
+    apiMocks.mockBuildWebSocketProtocols.mockClear()
     apiMocks.mockBuildWebSocketUrl.mockClear()
     apiMocks.mockCreateChat.mockReset()
     apiMocks.mockFetchChats.mockReset()
     apiMocks.mockFetchMessages.mockReset()
+    apiMocks.mockFetchUserProfile.mockClear()
     apiMocks.mockFetchUsers.mockReset()
     apiMocks.mockSendWebSocketCommand.mockClear()
+    authMocks.mockFetchCurrentUser.mockReset()
+    authMocks.mockLoginWithProvider.mockReset()
+    authMocks.mockLogoutCurrentSession.mockReset()
+    authMocks.mockRefreshSession.mockReset()
+  })
+
+  test('hides the welcome overlay after authentication even before websocket open', async () => {
+    render(<App />)
+
+    await connectAuthenticatedWorkspace()
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('welcome')).not.toBeInTheDocument()
+      expect(screen.getByTestId('sidebar')).toBeInTheDocument()
+    })
   })
 
   test('connects, bootstraps chats, loads history, and sends messages', async () => {
@@ -250,19 +313,20 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
-    expect(socket.url).toBe(`${DEFAULT_WS_URL}?userId=alice`)
+    const socket = await connectAuthenticatedWorkspace()
+    expect(socket.url).toBe(DEFAULT_WS_URL)
+    expect(socket.protocols).toEqual(['whispers.bearer.access-token'])
 
     await emitSocketOpen(socket)
 
     await waitFor(() => {
       expect(apiMocks.mockFetchChats).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
-        'alice',
+        'access-token',
       )
       expect(apiMocks.mockFetchUsers).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
-        'alice',
+        'access-token',
       )
     })
 
@@ -275,7 +339,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(apiMocks.mockFetchMessages).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
-        'alice',
+        'access-token',
         'chat-1',
       )
       expect(screen.getByTestId('participant')).toHaveTextContent('bob')
@@ -341,7 +405,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -407,7 +471,7 @@ describe('App', () => {
     await waitFor(() => {
       expect(apiMocks.mockCreateChat).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
-        'alice',
+        'access-token',
         'carol',
       )
       expect(screen.getByTestId('selected-chat')).toHaveTextContent('chat-2')
@@ -418,25 +482,43 @@ describe('App', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByTestId('welcome-status')).toHaveTextContent('disconnected')
+      expect(screen.getByTestId('connection-status')).toHaveTextContent('disconnected')
       expect(screen.getByTestId('selected-chat')).toHaveTextContent('none')
     })
   })
 
   test('handles invalid connection attempts and socket errors', async () => {
     const user = userEvent.setup()
+    authMocks.mockRefreshSession.mockRejectedValueOnce(new Error('No refresh session'))
 
-    render(<App />)
+    const initialRender = render(<App />)
 
-    await user.clear(screen.getByLabelText('welcome server url'))
-    await user.click(screen.getByRole('button', { name: 'connect' }))
+    await waitFor(() => {
+      expect(screen.getByTestId('welcome-auth-status')).toHaveTextContent(
+        'unauthenticated',
+      )
+    })
+    await user.click(screen.getByRole('button', { name: 'connect workspace' }))
 
-    expect(screen.getByTestId('event-log')).toHaveTextContent(
-      'Server URL and user ID are required.',
+    expect(screen.getByTestId('welcome-auth-error')).toHaveTextContent(
+      'Sign in first to connect the realtime workspace.',
     )
 
-    await user.type(screen.getByLabelText('welcome server url'), DEFAULT_WS_URL)
-    const socket = await connectAsUser(user)
+    authMocks.mockRefreshSession.mockResolvedValueOnce({
+      accessToken: 'access-token',
+      tokenType: 'Bearer',
+      expiresInSeconds: 60 * 60,
+      user: {
+        userId: 'user-1',
+        username: 'alice',
+        email: 'alice@example.com',
+        provider: 'google',
+      },
+    })
+    initialRender.unmount()
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
     await act(async () => {
       socket.emitError()
     })
@@ -460,7 +542,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -513,7 +595,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -596,7 +678,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -668,7 +750,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -719,7 +801,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -774,7 +856,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -834,7 +916,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {
@@ -893,7 +975,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const socket = await connectAsUser(user)
+    const socket = await connectAuthenticatedWorkspace()
     await emitSocketOpen(socket)
 
     await waitFor(() => {

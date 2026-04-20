@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { useState } from 'react'
+import type { AuthUserProfile } from '../../../shared/types/auth'
 import type { ConnectionStatus } from '../../../shared/types/chat'
 import type { ChatSummary, UserPresence } from '../../../shared/types/chat'
 import { sectionReveal } from '../../../shared/motion/presets'
@@ -12,6 +13,7 @@ import { useSidebarUserMenu } from '../hooks/useSidebarUserMenu'
 import './chat-sidebar.css'
 
 export interface ChatSidebarProps {
+  currentUser: AuthUserProfile | null
   currentUserId: string
   chats: ChatSummary[]
   selectedChatId: string | null
@@ -25,6 +27,7 @@ export interface ChatSidebarProps {
 }
 
 export function ChatSidebar({
+  currentUser,
   currentUserId,
   chats,
   selectedChatId,
@@ -37,7 +40,6 @@ export function ChatSidebar({
   onDisconnect,
 }: ChatSidebarProps) {
   const [isInfoOpen, setIsInfoOpen] = useState(false)
-  const currentUserLabel = currentUserId.trim() || 'Guest'
   const { sidebarFadeState, sidebarScrollRef, updateSidebarFadeState } =
     useSidebarScrollFades({
       chatsLength: chats.length,
@@ -46,7 +48,7 @@ export function ChatSidebar({
     })
   const { closeUserMenu, isUserMenuOpen, toggleUserMenu, userMenuRef } =
     useSidebarUserMenu({
-      currentUserLabel,
+      currentUserLabel: currentUserId.trim() || 'Guest',
       status,
     })
 
@@ -75,7 +77,7 @@ export function ChatSidebar({
       />
 
       <ChatSidebarAccount
-        currentUserLabel={currentUserLabel}
+        currentUser={currentUser}
         isUserMenuOpen={isUserMenuOpen}
         userMenuRef={userMenuRef}
         onDisconnect={onDisconnect}

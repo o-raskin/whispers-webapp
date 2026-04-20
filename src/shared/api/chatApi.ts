@@ -1,108 +1,173 @@
 import type {
+  ChatType,
   ChatSummary,
-  ErrorResponse,
   MessageRecord,
+  UserProfile,
   UserPresence,
   WebSocketOutgoingCommand,
 } from '../types/chat'
+import {
+  buildJsonHeaders,
+  buildUrl,
+  parseJsonResponse,
+} from './apiClient'
 
-function getHttpBaseUrl(serverUrl: string): string {
-  const wsUrl = new URL(serverUrl)
-  const protocol = wsUrl.protocol === 'wss:' ? 'https:' : 'http:'
-
-  return `${protocol}//${wsUrl.host}`
+interface ChatSummaryResponse {
+  chatId: number
+  username: string
+  type?: ChatType
+  firstName?: string | null
+  lastName?: string | null
+  profileUrl?: string | null
 }
 
-function buildUrl(serverUrl: string, path: string, params: Record<string, string>) {
-  const url = new URL(path, getHttpBaseUrl(serverUrl))
-
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value)
-  }
-
-  return url.toString()
+interface UserProfileResponse {
+  userId: string
+  username: string
+  firstName?: string | null
+  lastName?: string | null
+  profileUrl?: string | null
+  provider?: string | null
 }
 
-async function parseJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
-  const payload = (await response.json().catch(() => null)) as T | ErrorResponse | null
-
-  if (!response.ok) {
-    const message =
-      payload && typeof payload === 'object' && 'error' in payload
-        ? payload.error
-        : fallbackMessage
-    throw new Error(message)
-  }
-
-  return payload as T
+interface MessageRecordResponse {
+  chatId: number
+  senderUserId: string
+  text: string
+  timestamp: string
 }
 
-function buildJsonHeaders() {
+function normalizeChatSummary(chat: ChatSummaryResponse): ChatSummary {
   return {
-    Accept: 'application/json',
+    chatId: String(chat.chatId),
+    username: chat.username,
+    type: chat.type ?? 'DIRECT',
+    firstName: chat.firstName ?? null,
+    lastName: chat.lastName ?? null,
+    profileUrl: chat.profileUrl ?? null,
   }
 }
 
-export function buildWebSocketUrl(serverUrl: string, userId: string): string {
-  const url = new URL(serverUrl)
-  url.searchParams.set('userId', userId)
-  return url.toString()
+function normalizeUserProfile(profile: UserProfileResponse): UserProfile {
+  return {
+    userId: profile.userId,
+    username: profile.username,
+    firstName: profile.firstName ?? null,
+    lastName: profile.lastName ?? null,
+    profileUrl: profile.profileUrl ?? null,
+    provider: profile.provider ?? null,
+  }
+}
+
+function normalizeMessageRecord(message: MessageRecordResponse): MessageRecord {
+  return {
+    ...message,
+    chatId: String(message.chatId),
+  }
+}
+
+export function buildWebSocketUrl(serverUrl: string): string {
+  return new URL(serverUrl).toString()
+}
+
+export function buildWebSocketProtocols(accessToken: string): string[] {
+  return [`whispers.bearer.${accessToken}`]
+}
+
+function normalizeOutgoingCommand(payload: WebSocketOutgoingCommand): Record<string, unknown> {
+  if (!('chatId' in payload)) {
+    return payload as unknown as Record<string, unknown>
+  }
+
+  const normalizedChatId = Number(payload.chatId)
+
+  if (!Number.isFinite(normalizedChatId)) {
+    return payload as unknown as Record<string, unknown>
+  }
+
+  return {
+    ...payload,
+    chatId: normalizedChatId,
+  }
 }
 
 export function sendWebSocketCommand(
   socket: WebSocket,
   payload: WebSocketOutgoingCommand,
 ): void {
-  socket.send(JSON.stringify(payload))
+  socket.send(JSON.stringify(normalizeOutgoingCommand(payload)))
 }
 
-export async function fetchChats(serverUrl: string, userId: string): Promise<ChatSummary[]> {
-  const response = await fetch(buildUrl(serverUrl, '/chats', { userId }), {
-    headers: buildJsonHeaders(),
+export async function fetchChats(serverUrl: string, accessToken: string): Promise<ChatSummary[]> {
+  const response = await fetch(buildUrl(serverUrl, '/chats'), {
+    headers: buildJsonHeaders(accessToken),
   })
-  return parseJsonResponse<ChatSummary[]>(response, 'Cannot load chats.')
+
+  const payload = await parseJsonResponse<ChatSummaryResponse[]>(response, 'Cannot load chats.')
+  return payload.map(normalizeChatSummary)
 }
 
 export async function createChat(
   serverUrl: string,
-  userId: string,
+  accessToken: string,
   targetUserId: string,
 ): Promise<ChatSummary> {
   const response = await fetch(
     buildUrl(serverUrl, '/chats', {
-      userId,
       targetUserId,
     }),
     {
       method: 'POST',
-      headers: buildJsonHeaders(),
+      headers: buildJsonHeaders(accessToken),
     },
   )
 
-  return parseJsonResponse<ChatSummary>(response, 'Create chat failed.')
+  const payload = await parseJsonResponse<ChatSummaryResponse>(response, 'Create chat failed.')
+  return normalizeChatSummary(payload)
 }
 
 export async function fetchMessages(
   serverUrl: string,
-  userId: string,
+  accessToken: string,
   chatId: string,
 ): Promise<MessageRecord[]> {
   const response = await fetch(
     buildUrl(serverUrl, '/messages', {
-      userId,
       chatId,
     }),
     {
-      headers: buildJsonHeaders(),
+      headers: buildJsonHeaders(accessToken),
     },
   )
 
-  return parseJsonResponse<MessageRecord[]>(response, 'Cannot load history.')
+  const payload = await parseJsonResponse<MessageRecordResponse[]>(response, 'Cannot load history.')
+  return payload.map(normalizeMessageRecord)
 }
 
-export async function fetchUsers(serverUrl: string, userId: string): Promise<UserPresence[]> {
-  const response = await fetch(buildUrl(serverUrl, '/users', { userId }), {
-    headers: buildJsonHeaders(),
+export async function fetchUsers(serverUrl: string, accessToken: string): Promise<UserPresence[]> {
+  const response = await fetch(buildUrl(serverUrl, '/users'), {
+    headers: buildJsonHeaders(accessToken),
   })
+
   return parseJsonResponse<UserPresence[]>(response, 'Cannot load users.')
+}
+
+export async function fetchUserProfile(
+  serverUrl: string,
+  accessToken: string,
+  userId: string,
+): Promise<UserProfile> {
+  const response = await fetch(
+    buildUrl(serverUrl, `/users/${encodeURIComponent(userId)}`),
+    {
+      headers: buildJsonHeaders(accessToken),
+    },
+  )
+
+  const payload = await parseJsonResponse<UserProfileResponse>(
+    response,
+    'Cannot load user profile.',
+  )
+
+  return normalizeUserProfile(payload)
 }

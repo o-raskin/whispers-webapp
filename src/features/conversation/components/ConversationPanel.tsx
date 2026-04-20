@@ -2,7 +2,12 @@ import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import type { ConnectionStatus } from '../../../shared/types/chat'
-import type { CallPhase, ChatThread, UserPresence } from '../../../shared/types/chat'
+import type {
+  CallPhase,
+  ChatSummary,
+  ChatThread,
+  UserPresence,
+} from '../../../shared/types/chat'
 import {
   sectionReveal,
 } from '../../../shared/motion/presets'
@@ -20,6 +25,10 @@ import { useConversationHistoryViewport } from '../hooks/useConversationHistoryV
 import './conversation-shell.css'
 
 export interface ConversationPanelProps {
+  participantProfile?: Pick<
+    ChatSummary,
+    'firstName' | 'lastName' | 'profileUrl' | 'username'
+  > | null
   thread: ChatThread | null
   pendingParticipantName?: string | null
   user: UserPresence | null
@@ -43,6 +52,7 @@ export interface ConversationPanelProps {
 }
 
 export function ConversationPanel({
+  participantProfile = null,
   thread,
   pendingParticipantName = null,
   user,
@@ -77,7 +87,9 @@ export function ConversationPanel({
   const isActiveCallPhase =
     callPhase === 'outgoing' || callPhase === 'connecting' || callPhase === 'active'
   const conversationTitle = thread
-    ? thread.participant
+    ? [participantProfile?.firstName?.trim(), participantProfile?.lastName?.trim()]
+        .filter(Boolean)
+        .join(' ') || participantProfile?.username || thread.participant
     : isMobilePendingThread
       ? pendingParticipant ?? 'Loading conversation'
       : 'Welcome to Whispers'
@@ -162,6 +174,7 @@ export function ConversationPanel({
         isRecipientOnline={isRecipientOnline}
         isRemoteTyping={isRemoteTyping}
         pendingParticipant={pendingParticipant}
+        participantProfile={participantProfile}
         subtitle={subtitle}
         thread={thread}
         onBackToInbox={onBackToInbox}
@@ -187,6 +200,7 @@ export function ConversationPanel({
           setIsHistoryAnchored(true)
         }}
         onScrollToLatest={scrollHistoryToLatest}
+        participantProfile={participantProfile}
         showHistoryLoadingState={showHistoryLoadingState}
         thread={thread}
         visibleHistoryFadeState={visibleHistoryFadeState}

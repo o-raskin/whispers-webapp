@@ -3,15 +3,53 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { WelcomeExperience } from '../features/welcome/components/WelcomeExperience'
 import { toChatMessage, toMessageId } from '../shared/adapters/chatAdapters'
 import {
+  fetchCurrentUser,
+  loginWithProvider,
+  logoutCurrentSession,
+  refreshSession,
+} from '../shared/api/authApi'
+import { ApiError } from '../shared/api/apiClient'
+import {
+  buildWebSocketProtocols,
   buildWebSocketUrl,
   createChat,
   fetchChats,
   fetchMessages,
+  fetchUserProfile,
   fetchUsers,
   sendWebSocketCommand,
 } from '../shared/api/chatApi'
+import {
+  clearPendingAuthRedirect,
+  clearPendingAuthProvider,
+  clearStoredAuthSession,
+  loadPendingAuthRedirect,
+  loadPendingAuthProvider,
+  loadStoredAuthSession,
+  saveAuthSession,
+  savePendingAuthRedirect,
+  savePendingAuthProvider,
+} from '../shared/auth/authStorage'
+import { createOAuthState, createOidcNonce, createPkcePair } from '../shared/auth/oauthRedirect'
+import {
+  AUTH_CALLBACK_PARAM,
+  AUTH_CALLBACK_ROUTE_PREFIX,
+  AUTH_PROVIDERS,
+  AUTH_STATE_PARAM,
+  buildProviderAuthorizationUrl,
+  DEFAULT_AUTH_PROVIDER,
+  getAuthCallbackRedirectUri,
+  HOME_ROUTE_PATH,
+  isProviderRedirectConfigured,
+  LOGIN_ROUTE_PATH,
+} from '../shared/config/auth'
 import { DEFAULT_WS_URL, PRESENCE_PING_INTERVAL_MS } from '../shared/config/backend'
 import { shellStagger } from '../shared/motion/presets'
+import type {
+  AuthSession,
+  AuthUserProfile,
+  LoginResponse,
+} from '../shared/types/auth'
 import type {
   ChatMessage,
   ChatSummary,
@@ -23,10 +61,7 @@ import type {
   UserPresence,
   WebSocketIncomingEvent,
 } from '../shared/types/chat'
-import {
-  isCallSignalText,
-  parseCallSignalText,
-} from '../shared/utils/callSignals'
+import { isCallSignalText, parseCallSignalText } from '../shared/utils/callSignals'
 import { AppWorkspace } from './components/AppWorkspace'
 import { useCallSession } from './hooks/useCallSession'
 import { useResponsiveAppShell } from './hooks/useResponsiveAppShell'
@@ -42,19 +77,90 @@ import {
   setChatTimestamp,
   upsertThread,
 } from './utils/chatRuntime'
-import {
-  countUnreadMessages,
-  loadReadMarkers,
-  saveReadMarkers,
-} from './utils/readMarkers'
+import { countUnreadMessages, loadReadMarkers, saveReadMarkers } from './utils/readMarkers'
 import {
   hasTypedEventShape,
   isMessageRecord,
   isPresenceEvent,
   isTypingEvent,
+  type WebSocketMessageRecordPayload,
 } from './utils/websocketPayloadGuards'
 
 const TYPING_REFRESH_INTERVAL_MS = 4000
+type AuthStatus = 'authenticated' | 'authenticating' | 'checking' | 'unauthenticated'
+
+function createSessionFromLogin(payload: LoginResponse, provider: string): AuthSession {
+  return {
+    accessToken: payload.accessToken,
+    tokenType: payload.tokenType,
+    expiresAt: Date.now() + payload.expiresInSeconds * 1000,
+    provider,
+  }
+}
+
+function normalizeSocketMessage(payload: WebSocketMessageRecordPayload): MessageRecord {
+  return {
+    ...payload,
+    chatId: String(payload.chatId),
+  }
+}
+
+function replaceBrowserRoute(pathname: string) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const nextUrl = new URL(window.location.href)
+  nextUrl.pathname = pathname
+  nextUrl.search = ''
+  nextUrl.hash = ''
+  window.history.replaceState({}, '', nextUrl)
+}
+
+function getAuthCallbackCode() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return new URLSearchParams(window.location.search).get(AUTH_CALLBACK_PARAM)?.trim() ?? ''
+}
+
+function getAuthCallbackState() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return new URLSearchParams(window.location.search).get(AUTH_STATE_PARAM)?.trim() ?? ''
+}
+
+function getAuthCallbackProvider(selectedProvider: string) {
+  if (typeof window === 'undefined') {
+    return selectedProvider
+  }
+
+  const callbackPath = window.location.pathname
+
+  if (callbackPath.startsWith(`${AUTH_CALLBACK_ROUTE_PREFIX}/`)) {
+    const provider = callbackPath.slice(`${AUTH_CALLBACK_ROUTE_PREFIX}/`.length).split('/')[0]
+
+    if (provider) {
+      return provider
+    }
+  }
+
+  return (
+    loadPendingAuthProvider() ??
+    (AUTH_PROVIDERS.length === 1 ? AUTH_PROVIDERS[0].id : selectedProvider)
+  )
+}
+
+function getCurrentUserLabel(user: AuthUserProfile | null) {
+  if (!user) {
+    return ''
+  }
+
+  return user.displayName?.trim() || user.email || user.username
+}
 
 export function App() {
   const socketRef = useRef<WebSocket | null>(null)
@@ -63,12 +169,30 @@ export function App() {
   const activeTypingChatIdRef = useRef<string | null>(null)
   const userIdRef = useRef('')
   const chatsRef = useRef<ChatSummary[]>([])
+  const connectAuthenticatedSocketRef = useRef<(accessToken: string, username: string) => void>(
+    () => {},
+  )
+  const applyAuthenticatedSessionRef = useRef<(session: AuthSession, user: AuthUserProfile) => void>(
+    () => {},
+  )
+  const authenticateRef = useRef<
+    (
+      provider: string,
+      code: string,
+      options?: { codeVerifier?: string; nonce?: string },
+    ) => Promise<void>
+  >(async () => {})
   const selectedChatIdRef = useRef<string | null>(null)
   const threadsRef = useRef<Record<string, ChatThread>>({})
   const readMarkersRef = useRef<Record<string, string>>({})
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_WS_URL)
-  const [userId, setUserId] = useState('')
+  const [selectedProvider, setSelectedProvider] = useState(DEFAULT_AUTH_PROVIDER)
+  const [, setAuthCode] = useState('')
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null)
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('checking')
+  const [authUser, setAuthUser] = useState<AuthUserProfile | null>(null)
   const [status, setStatus] = useState<ConnectionStatus>('disconnected')
   const [users, setUsers] = useState<Record<string, UserPresence>>({})
   const [chats, setChats] = useState<ChatSummary[]>([])
@@ -87,16 +211,21 @@ export function App() {
   const { handleShellPointerLeave, handleShellPointerMove, isMobileLayout } =
     useResponsiveAppShell()
 
-  const currentUserId = userId.trim()
+  const currentUserId = authUser?.username.trim() ?? ''
+  const currentUserLabel = getCurrentUserLabel(authUser)
   const selectedThread = selectedChatId ? threads[selectedChatId] ?? null : null
   const selectedChatSummary = selectedChatId
     ? chats.find((chat) => chat.chatId === selectedChatId) ?? null
     : null
   const selectedUser = selectedThread ? users[selectedThread.participant] ?? null : null
   const remoteTypingLabel = selectedChatId ? remoteTypingByChatId[selectedChatId] ?? null : null
-  const showWelcome = status !== 'connected'
+  const showWelcome = authStatus !== 'authenticated'
   const isDrafting = Boolean(messageDraft.trim())
   const isMobileChatOpen = isMobileLayout && Boolean(selectedChatId)
+  const isCallbackRoute =
+    typeof window !== 'undefined' &&
+    window.location.pathname.startsWith(`${AUTH_CALLBACK_ROUTE_PREFIX}/`)
+  const providerRedirectEnabled = isProviderRedirectConfigured(selectedProvider)
 
   userIdRef.current = currentUserId
   chatsRef.current = chats
@@ -114,71 +243,6 @@ export function App() {
       typingTimerRef.current = null
     }
   }, [])
-
-  const clearRemoteTyping = useCallback((chatId: string) => {
-    setRemoteTypingByChatId((current) => {
-      if (!current[chatId]) {
-        return current
-      }
-
-      const next = { ...current }
-      delete next[chatId]
-      return next
-    })
-  }, [])
-
-  const sendTypingCommand = useCallback((
-    payload: TypingCommand,
-    options?: { log?: boolean },
-  ) => {
-    if (socketRef.current?.readyState !== WebSocket.OPEN) {
-      return false
-    }
-
-    sendWebSocketCommand(socketRef.current, payload)
-
-    if (options?.log ?? true) {
-      appendEventLog(`Sent: ${JSON.stringify(payload)}`)
-    }
-
-    return true
-  }, [appendEventLog])
-
-  const startLocalTyping = useCallback((
-    chatId: string,
-    options?: { log?: boolean },
-  ) => {
-    const didSend = sendTypingCommand(
-      {
-        type: 'TYPING_START',
-        chatId,
-      },
-      options,
-    )
-
-    activeTypingChatIdRef.current = didSend ? chatId : null
-    return didSend
-  }, [sendTypingCommand])
-
-  const stopLocalTyping = useCallback((
-    chatId = activeTypingChatIdRef.current,
-    options?: { log?: boolean },
-  ) => {
-    clearTypingRefreshTimer()
-    activeTypingChatIdRef.current = null
-
-    if (!chatId) {
-      return
-    }
-
-    void sendTypingCommand(
-      {
-        type: 'TYPING_END',
-        chatId,
-      },
-      options,
-    )
-  }, [clearTypingRefreshTimer, sendTypingCommand])
 
   const appendSystemMessage = useCallback((chatId: string | null, text: string) => {
     if (!chatId) {
@@ -202,6 +266,18 @@ export function App() {
     })
   }, [])
 
+  const clearRemoteTyping = useCallback((chatId: string) => {
+    setRemoteTypingByChatId((current) => {
+      if (!current[chatId]) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
+  }, [])
+
   const upsertMessages = useCallback((
     chatId: string,
     participant: string,
@@ -218,10 +294,7 @@ export function App() {
     setChats((current) => setChatTimestamp(current, chatId, lastMessageTimestamp))
   }, [])
 
-  const markChatAsRead = useCallback((
-    chatId: string,
-    timestamp: string | null | undefined,
-  ) => {
+  const markChatAsRead = useCallback((chatId: string, timestamp: string | null | undefined) => {
     if (!timestamp) {
       return
     }
@@ -242,7 +315,48 @@ export function App() {
     setChats((current) => clearChatUnreadCount(current, chatId))
   }, [])
 
+  const resetRealtimeState = useCallback((cleanupReason: string) => {
+    setStatus('disconnected')
+    setIsBootstrapping(false)
+    setIsHistoryLoading(false)
+    setChats([])
+    setRemoteTypingByChatId({})
+    setUsers({})
+    setThreads({})
+    setSelectedChatId(null)
+    setReadMarkers({})
+    setMessageDraft('')
+    clearTypingRefreshTimer()
+    activeTypingChatIdRef.current = null
+    appendEventLog(`Realtime state reset: ${cleanupReason}`)
+  }, [appendEventLog, clearTypingRefreshTimer])
+
+  const handleUnauthorizedAccess = useCallback((message: string) => {
+    socketRef.current?.close()
+    socketRef.current = null
+    clearStoredAuthSession(serverUrl)
+    clearPendingAuthRedirect()
+    clearPendingAuthProvider()
+    setAuthSession(null)
+    setAuthUser(null)
+    setAuthStatus('unauthenticated')
+    setAuthCode('')
+    setAuthError(message)
+    resetRealtimeState('unauthorized')
+  }, [resetRealtimeState, serverUrl])
+
+  const handleProtectedRequestError = useCallback((error: unknown, fallbackMessage: string) => {
+    if (error instanceof ApiError && error.status === 401) {
+      handleUnauthorizedAccess(error.message)
+      throw error
+    }
+
+    const message = error instanceof Error ? error.message : fallbackMessage
+    throw new Error(message)
+  }, [handleUnauthorizedAccess])
+
   const hydrateChatSummaries = useCallback(async (
+    accessToken: string,
     nextUserId: string,
     chatSummaries: ChatSummary[],
   ) => {
@@ -253,7 +367,7 @@ export function App() {
     const historyResults = await Promise.allSettled(
       chatSummaries.map(async (chat) => {
         const messages = filterVisibleMessages(
-          await fetchMessages(serverUrl, nextUserId, chat.chatId),
+          await fetchMessages(serverUrl, accessToken, chat.chatId),
         )
         const latestMessage = messages.at(-1)
         const readMarker = readMarkersRef.current[chat.chatId]
@@ -295,8 +409,8 @@ export function App() {
     )
   }, [appendEventLog, serverUrl])
 
-  const refreshUsers = useCallback(async (nextUserId: string) => {
-    const payload = await fetchUsers(serverUrl, nextUserId)
+  const refreshUsers = useCallback(async (accessToken: string) => {
+    const payload = await fetchUsers(serverUrl, accessToken)
 
     setUsers((current) => {
       const nextUsers: Record<string, UserPresence> = {}
@@ -312,30 +426,92 @@ export function App() {
     })
   }, [serverUrl])
 
-  const refreshChats = useCallback(async (nextUserId: string) => {
-    const payload = await fetchChats(serverUrl, nextUserId)
+  const enrichDirectChats = useCallback(async (
+    accessToken: string,
+    chatSummaries: ChatSummary[],
+  ) => {
+    const directChats = chatSummaries.filter((chat) => (chat.type ?? 'DIRECT') === 'DIRECT')
 
-    setChats((current) => mergeFetchedChats(current, payload))
+    if (directChats.length === 0) {
+      return chatSummaries
+    }
+
+    const profileResults = await Promise.allSettled(
+      directChats.map(async (chat) => ({
+        username: chat.username,
+        profile: await fetchUserProfile(serverUrl, accessToken, chat.username),
+      })),
+    )
+
+    const failedProfiles = profileResults.filter((result) => result.status === 'rejected')
+    const profileByUsername = new Map<
+      string,
+      { firstName?: string | null; lastName?: string | null; profileUrl?: string | null }
+    >()
+
+    for (const result of profileResults) {
+      if (result.status === 'fulfilled') {
+        profileByUsername.set(result.value.username, result.value.profile)
+      }
+    }
+
+    if (failedProfiles.length > 0) {
+      appendEventLog(
+        `Could not enrich ${failedProfiles.length} direct chat profile${failedProfiles.length === 1 ? '' : 's'}.`,
+      )
+    }
+
+    return chatSummaries.map((chat) => {
+      if ((chat.type ?? 'DIRECT') !== 'DIRECT') {
+        return chat
+      }
+
+      const profile = profileByUsername.get(chat.username)
+
+      if (!profile) {
+        return chat
+      }
+
+      return {
+        ...chat,
+        firstName: profile.firstName ?? chat.firstName ?? null,
+        lastName: profile.lastName ?? chat.lastName ?? null,
+        profileUrl: profile.profileUrl ?? chat.profileUrl ?? null,
+      }
+    })
+  }, [appendEventLog, serverUrl])
+
+  const refreshChats = useCallback(async (accessToken: string, nextUserId: string) => {
+    const payload = await fetchChats(serverUrl, accessToken)
+    const enrichedPayload = await enrichDirectChats(accessToken, payload)
+
+    setChats((current) => mergeFetchedChats(current, enrichedPayload))
 
     setSelectedChatId((current) => {
-      if (current && payload.some((chat) => chat.chatId === current)) {
+      if (current && enrichedPayload.some((chat) => chat.chatId === current)) {
         return current
       }
 
       return null
     })
 
-    await hydrateChatSummaries(nextUserId, payload)
-  }, [hydrateChatSummaries, serverUrl])
+    await hydrateChatSummaries(accessToken, nextUserId, enrichedPayload)
+  }, [enrichDirectChats, hydrateChatSummaries, serverUrl])
 
   const loadHistory = useCallback(async (chatId: string, nextUserId: string) => {
+    if (!authSession) {
+      return
+    }
+
     const chat = chatsRef.current.find((entry) => entry.chatId === chatId)
 
     if (!chat) {
       return
     }
 
-    const payload = filterVisibleMessages(await fetchMessages(serverUrl, nextUserId, chatId))
+    const payload = filterVisibleMessages(
+      await fetchMessages(serverUrl, authSession.accessToken, chatId),
+    )
     const normalizedMessages = payload.map((message) => toChatMessage(message, nextUserId))
     const latestMessage = normalizedMessages.at(-1)
 
@@ -346,7 +522,7 @@ export function App() {
       syncChatTimestamp(chatId, latestMessage.timestamp)
       markChatAsRead(chatId, latestMessage.timestamp)
     }
-  }, [markChatAsRead, serverUrl, syncChatPreview, syncChatTimestamp, upsertMessages])
+  }, [authSession, markChatAsRead, serverUrl, syncChatPreview, syncChatTimestamp, upsertMessages])
 
   const {
     acceptCall,
@@ -370,6 +546,459 @@ export function App() {
     userIdRef,
   })
 
+  const sendTypingCommand = useCallback((
+    payload: TypingCommand,
+    options?: { log?: boolean },
+  ) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+      return false
+    }
+
+    sendWebSocketCommand(socketRef.current, payload)
+
+    if (options?.log ?? true) {
+      appendEventLog(`Sent: ${JSON.stringify(payload)}`)
+    }
+
+    return true
+  }, [appendEventLog])
+
+  const startLocalTyping = useCallback((chatId: string, options?: { log?: boolean }) => {
+    const didSend = sendTypingCommand({ type: 'TYPING_START', chatId }, options)
+    activeTypingChatIdRef.current = didSend ? chatId : null
+    return didSend
+  }, [sendTypingCommand])
+
+  const stopLocalTyping = useCallback((chatId = activeTypingChatIdRef.current, options?: { log?: boolean }) => {
+    clearTypingRefreshTimer()
+    activeTypingChatIdRef.current = null
+
+    if (!chatId) {
+      return
+    }
+
+    void sendTypingCommand({ type: 'TYPING_END', chatId }, options)
+  }, [clearTypingRefreshTimer, sendTypingCommand])
+
+  const connectAuthenticatedSocket = useCallback((accessToken: string, username: string) => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      appendEventLog('Already connected.')
+      return
+    }
+
+    if (socketRef.current?.readyState === WebSocket.CONNECTING) {
+      appendEventLog('Connection already in progress.')
+      return
+    }
+
+    const url = buildWebSocketUrl(serverUrl)
+    const socket = new WebSocket(url, buildWebSocketProtocols(accessToken))
+    socketRef.current = socket
+
+    setStatus('connecting')
+    appendEventLog(`Connecting to ${url}`)
+
+    socket.onopen = () => {
+      setStatus('connected')
+      setIsBootstrapping(true)
+      setReadMarkers(loadReadMarkers(username))
+      appendEventLog(`WebSocket connected as ${username}.`)
+
+      Promise.all([
+        refreshChats(accessToken, username).catch((error) =>
+          handleProtectedRequestError(error, 'Cannot load chats.'),
+        ),
+        refreshUsers(accessToken).catch((error) =>
+          handleProtectedRequestError(error, 'Cannot load users.'),
+        ),
+      ])
+        .catch((error: Error) => {
+          appendEventLog(`Cannot load initial data: ${error.message}`)
+        })
+        .finally(() => {
+          setIsBootstrapping(false)
+        })
+    }
+
+    socket.onmessage = (event) => {
+      const raw = String(event.data)
+      appendEventLog(`Received: ${raw}`)
+
+      if (raw.startsWith('CONNECTED:')) {
+        return
+      }
+
+      if (raw.startsWith('ERROR:')) {
+        appendSystemMessage(selectedChatIdRef.current, raw)
+        return
+      }
+
+      let payload: unknown
+
+      try {
+        payload = JSON.parse(raw) as WebSocketIncomingEvent
+      } catch {
+        appendEventLog(`Ignored non-JSON message: ${raw}`)
+        return
+      }
+
+      if (isMessageRecord(payload)) {
+        const normalizedPayload = normalizeSocketMessage(payload)
+
+        if (isCallSignalText(normalizedPayload.text)) {
+          const signal = parseCallSignalText(normalizedPayload.text)
+
+          if (!signal) {
+            appendEventLog('Ignored malformed hidden call signal message.')
+            return
+          }
+
+          void handleCallSignalMessage(normalizedPayload, signal)
+          return
+        }
+
+        const message: ChatMessage = {
+          ...toChatMessage(normalizedPayload, userIdRef.current),
+          id: toMessageId(normalizedPayload),
+        }
+
+        if (message.senderUserId !== userIdRef.current) {
+          clearRemoteTyping(message.chatId)
+        }
+
+        const chat = chatsRef.current.find((entry) => entry.chatId === message.chatId)
+        upsertMessages(message.chatId, chat?.username ?? message.senderUserId, [message])
+
+        setChats((current) => {
+          if (!current.some((entry) => entry.chatId === message.chatId)) {
+            void refreshChats(accessToken, userIdRef.current).catch((error) => {
+              const messageText =
+                error instanceof Error ? error.message : 'Cannot refresh chats.'
+              appendEventLog(`Cannot refresh chats: ${messageText}`)
+            })
+            return current
+          }
+
+          if (selectedChatIdRef.current === message.chatId) {
+            markChatAsRead(message.chatId, message.timestamp)
+          }
+
+          return (
+            applyIncomingMessageToChats(
+              current,
+              message,
+              selectedChatIdRef.current,
+              userIdRef.current,
+            ) ?? current
+          )
+        })
+
+        return
+      }
+
+      if (isPresenceEvent(payload)) {
+        setUsers((current) => ({
+          ...current,
+          [payload.username]: {
+            username: payload.username,
+            lastPingReceivedAt: Date.now(),
+            lastPingTime: payload.lastPingTime,
+          },
+        }))
+        return
+      }
+
+      if (isTypingEvent(payload)) {
+        const chatId = String(payload.chatId)
+
+        if (payload.username && payload.username === userIdRef.current) {
+          return
+        }
+
+        if (payload.type === 'typing:stop' || payload.type === 'TYPING_END') {
+          clearRemoteTyping(chatId)
+          return
+        }
+
+        const chat = chatsRef.current.find((entry) => entry.chatId === chatId)
+        const typingUser =
+          payload.username && payload.username !== userIdRef.current
+            ? payload.username
+            : chat?.username ?? 'Someone'
+
+        setRemoteTypingByChatId((current) => ({
+          ...current,
+          [chatId]: typingUser,
+        }))
+        return
+      }
+
+      if (hasTypedEventShape(payload)) {
+        appendEventLog(`Ignored unsupported websocket event type: ${String(payload.type)}`)
+        return
+      }
+
+      appendEventLog('Ignored websocket payload with unsupported structure.')
+    }
+
+    socket.onerror = () => {
+      appendEventLog('WebSocket error.')
+      appendSystemMessage(selectedChatIdRef.current, 'WebSocket error.')
+    }
+
+    socket.onclose = () => {
+      appendEventLog('WebSocket closed.')
+      setStatus('disconnected')
+      setIsBootstrapping(false)
+      setIsHistoryLoading(false)
+      setChats([])
+      setRemoteTypingByChatId({})
+      setUsers({})
+      setThreads({})
+      setSelectedChatId(null)
+      setReadMarkers({})
+      cleanupCallSession('socket-closed')
+      clearTypingRefreshTimer()
+      activeTypingChatIdRef.current = null
+      socketRef.current = null
+    }
+  }, [
+    appendEventLog,
+    appendSystemMessage,
+    cleanupCallSession,
+    clearRemoteTyping,
+    clearTypingRefreshTimer,
+    handleCallSignalMessage,
+    handleProtectedRequestError,
+    markChatAsRead,
+    refreshChats,
+    refreshUsers,
+    serverUrl,
+    upsertMessages,
+  ])
+
+  useEffect(() => {
+    connectAuthenticatedSocketRef.current = connectAuthenticatedSocket
+  }, [connectAuthenticatedSocket])
+
+  const applyAuthenticatedSession = useCallback((session: AuthSession, user: AuthUserProfile) => {
+    saveAuthSession(serverUrl, session)
+    clearPendingAuthRedirect()
+    clearPendingAuthProvider()
+    setAuthSession(session)
+    setAuthUser(user)
+    setSelectedProvider(session.provider)
+    setAuthStatus('authenticated')
+    setAuthError(null)
+    setAuthCode('')
+  }, [serverUrl])
+
+  const authenticate = useCallback(async (
+    provider: string,
+    code: string,
+    options?: { codeVerifier?: string; nonce?: string },
+  ) => {
+    if (!serverUrl.trim()) {
+      setAuthError('Server URL is required before signing in.')
+      appendEventLog('Server URL is required before signing in.')
+      return
+    }
+
+    if (!code.trim() || !options?.codeVerifier || !options?.nonce) {
+      setAuthError('A full OIDC redirect is required before exchanging the code.')
+      appendEventLog('OIDC code exchange requires code verifier and nonce.')
+      return
+    }
+
+    try {
+      setAuthStatus('authenticating')
+      setAuthError(null)
+      savePendingAuthProvider(provider)
+      appendEventLog(`Authenticating with ${provider}.`)
+
+      const payload = await loginWithProvider(serverUrl, provider, {
+        code: code.trim(),
+        redirectUri: getAuthCallbackRedirectUri(provider),
+        codeVerifier: options.codeVerifier,
+        nonce: options.nonce,
+      })
+      const session = createSessionFromLogin(payload, provider)
+
+      applyAuthenticatedSession(session, payload.user)
+      connectAuthenticatedSocket(session.accessToken, payload.user.username)
+      replaceBrowserRoute(HOME_ROUTE_PATH)
+    } catch (error) {
+      clearPendingAuthRedirect()
+      clearPendingAuthProvider()
+      setAuthStatus('unauthenticated')
+      const message = error instanceof Error ? error.message : 'Authentication failed.'
+      setAuthError(message)
+      appendEventLog(`Authentication failed: ${message}`)
+    }
+  }, [appendEventLog, applyAuthenticatedSession, connectAuthenticatedSocket, serverUrl])
+
+  useEffect(() => {
+    applyAuthenticatedSessionRef.current = applyAuthenticatedSession
+  }, [applyAuthenticatedSession])
+
+  useEffect(() => {
+    authenticateRef.current = authenticate
+  }, [authenticate])
+
+  const handleStartProviderLogin = useCallback(async () => {
+    if (!serverUrl.trim()) {
+      setAuthError('Server URL is required before signing in.')
+      appendEventLog('Server URL is required before signing in.')
+      return
+    }
+
+    try {
+      const { codeChallenge, codeVerifier } = await createPkcePair()
+      const state = createOAuthState()
+      const nonce = createOidcNonce()
+      const redirectUri = getAuthCallbackRedirectUri(selectedProvider)
+      const authorizationUrl = buildProviderAuthorizationUrl(selectedProvider, {
+        codeChallenge,
+        nonce,
+        redirectUri,
+        state,
+      })
+
+      if (!authorizationUrl) {
+        setAuthError(
+          'Could not start provider redirect. Configure the provider authorization settings for this environment and try again.',
+        )
+        return
+      }
+
+      savePendingAuthProvider(selectedProvider)
+      savePendingAuthRedirect({
+        codeVerifier,
+        createdAt: Date.now(),
+        nonce,
+        provider: selectedProvider,
+        state,
+      })
+      setAuthError(null)
+      window.location.assign(authorizationUrl)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not start provider login.'
+      setAuthError(message)
+      appendEventLog(`Could not start provider login: ${message}`)
+    }
+  }, [appendEventLog, selectedProvider, serverUrl])
+
+  useEffect(() => {
+    let isCancelled = false
+    const callbackCode = getAuthCallbackCode()
+    const callbackState = getAuthCallbackState()
+
+    async function restoreOrRefreshSession() {
+      const storedSession = loadStoredAuthSession(serverUrl)
+
+      if (storedSession && storedSession.expiresAt > Date.now()) {
+        setAuthStatus('checking')
+        setAuthError(null)
+
+        try {
+          const user = await fetchCurrentUser(serverUrl, storedSession.accessToken)
+
+          if (isCancelled) {
+            return
+          }
+
+          applyAuthenticatedSessionRef.current(storedSession, user)
+          connectAuthenticatedSocketRef.current(storedSession.accessToken, user.username)
+          return
+        } catch (error) {
+          if (!(error instanceof ApiError) || error.status !== 401) {
+            const message = error instanceof Error ? error.message : 'Cannot restore session.'
+            setAuthStatus('unauthenticated')
+            setAuthError(message)
+            return
+          }
+        }
+      }
+
+      try {
+        setAuthStatus('checking')
+        setAuthError(null)
+        const payload = await refreshSession(serverUrl)
+
+        if (isCancelled) {
+          return
+        }
+
+        const provider = payload.user.provider ?? loadPendingAuthProvider() ?? DEFAULT_AUTH_PROVIDER
+        const session = createSessionFromLogin(payload, provider)
+
+        applyAuthenticatedSessionRef.current(session, payload.user)
+        connectAuthenticatedSocketRef.current(session.accessToken, payload.user.username)
+      } catch {
+        if (isCancelled) {
+          return
+        }
+
+        clearStoredAuthSession(serverUrl)
+        clearPendingAuthRedirect()
+        clearPendingAuthProvider()
+        setAuthSession(null)
+        setAuthUser(null)
+        setAuthStatus('unauthenticated')
+      }
+    }
+
+    if (callbackCode) {
+      const pendingRedirect = loadPendingAuthRedirect()
+      const provider = pendingRedirect?.provider ?? getAuthCallbackProvider(DEFAULT_AUTH_PROVIDER)
+
+      if (!pendingRedirect || pendingRedirect.state !== callbackState) {
+        clearPendingAuthRedirect()
+        clearPendingAuthProvider()
+        setAuthStatus('unauthenticated')
+        setAuthError('Authentication state check failed. Start sign-in again.')
+        return () => {
+          isCancelled = true
+        }
+      }
+
+      setSelectedProvider(provider)
+      setAuthCode(callbackCode)
+      void authenticateRef.current(provider, callbackCode, {
+        codeVerifier: pendingRedirect.codeVerifier,
+        nonce: pendingRedirect.nonce,
+      })
+    } else {
+      void restoreOrRefreshSession()
+    }
+
+    return () => {
+      isCancelled = true
+    }
+  }, [serverUrl])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (authStatus === 'authenticated') {
+      if (window.location.pathname !== HOME_ROUTE_PATH && !isCallbackRoute) {
+        replaceBrowserRoute(HOME_ROUTE_PATH)
+      }
+
+      return
+    }
+
+    if (getAuthCallbackCode()) {
+      return
+    }
+
+    if (window.location.pathname !== LOGIN_ROUTE_PATH) {
+      replaceBrowserRoute(LOGIN_ROUTE_PATH)
+    }
+  }, [authStatus, isCallbackRoute])
+
   const handleSelectChat = useCallback((chatId: string) => {
     if (activeCallState && activeCallState.chatId !== chatId) {
       endActiveCall({ notifyRemote: true })
@@ -378,129 +1007,6 @@ export function App() {
     setSelectedChatId(chatId)
     setIsHistoryLoading(true)
   }, [activeCallState, endActiveCall])
-
-  const handleIncomingChatMessage = useCallback((payloadMessage: MessageRecord) => {
-    const message: ChatMessage = {
-      ...toChatMessage(payloadMessage, userIdRef.current),
-      id: toMessageId(payloadMessage),
-    }
-
-    if (message.senderUserId !== userIdRef.current) {
-      clearRemoteTyping(message.chatId)
-    }
-
-    const chat = chatsRef.current.find((entry) => entry.chatId === message.chatId)
-    upsertMessages(message.chatId, chat?.username ?? message.senderUserId, [message])
-
-    setChats((current) => {
-      if (!current.some((entry) => entry.chatId === message.chatId)) {
-        void refreshChats(userIdRef.current)
-        return current
-      }
-
-      if (selectedChatIdRef.current === message.chatId) {
-        markChatAsRead(message.chatId, message.timestamp)
-      }
-
-      return (
-        applyIncomingMessageToChats(
-          current,
-          message,
-          selectedChatIdRef.current,
-          userIdRef.current,
-        ) ?? current
-      )
-    })
-  }, [clearRemoteTyping, markChatAsRead, refreshChats, upsertMessages])
-
-  const handleSocketMessage = useCallback((raw: string) => {
-    appendEventLog(`Received: ${raw}`)
-
-    if (raw.startsWith('CONNECTED:')) {
-      return
-    }
-
-    if (raw.startsWith('ERROR:')) {
-      appendSystemMessage(selectedChatIdRef.current, raw)
-      return
-    }
-
-    let payload: unknown
-
-    try {
-      payload = JSON.parse(raw) as WebSocketIncomingEvent
-    } catch {
-      appendEventLog(`Ignored non-JSON message: ${raw}`)
-      return
-    }
-
-    if (isMessageRecord(payload)) {
-      if (isCallSignalText(payload.text)) {
-        const signal = parseCallSignalText(payload.text)
-
-        if (!signal) {
-          appendEventLog('Ignored malformed hidden call signal message.')
-          return
-        }
-
-        void handleCallSignalMessage(payload, signal)
-        return
-      }
-
-      handleIncomingChatMessage(payload)
-      return
-    }
-
-    if (isPresenceEvent(payload)) {
-      setUsers((current) => ({
-        ...current,
-        [payload.username]: {
-          username: payload.username,
-          lastPingReceivedAt: Date.now(),
-          lastPingTime: payload.lastPingTime,
-        },
-      }))
-      return
-    }
-
-    if (isTypingEvent(payload)) {
-      if (payload.username && payload.username === userIdRef.current) {
-        return
-      }
-
-      if (payload.type === 'typing:stop' || payload.type === 'TYPING_END') {
-        clearRemoteTyping(payload.chatId)
-        return
-      }
-
-      const chat = chatsRef.current.find((entry) => entry.chatId === payload.chatId)
-      const typingUser =
-        payload.username && payload.username !== userIdRef.current
-          ? payload.username
-          : chat?.username ?? 'Someone'
-
-      setRemoteTypingByChatId((current) => ({
-        ...current,
-        [payload.chatId]: typingUser,
-      }))
-      return
-    }
-
-    if (hasTypedEventShape(payload)) {
-      appendEventLog(
-        `Ignored unsupported websocket event type: ${String(payload.type)}`,
-      )
-      return
-    }
-
-    appendEventLog('Ignored websocket payload with unsupported structure.')
-  }, [
-    appendEventLog,
-    appendSystemMessage,
-    clearRemoteTyping,
-    handleCallSignalMessage,
-    handleIncomingChatMessage,
-  ])
 
   useEffect(() => {
     if (!currentUserId) {
@@ -517,14 +1023,27 @@ export function App() {
 
     setIsHistoryLoading(true)
     loadHistory(selectedChatId, currentUserId)
-      .catch((error: Error) => {
-        appendEventLog(`Cannot load history: ${error.message}`)
-        appendSystemMessage(selectedChatId, `Cannot load history: ${error.message}`)
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 401) {
+          handleUnauthorizedAccess(error.message)
+          return
+        }
+
+        const message = error instanceof Error ? error.message : 'Cannot load history.'
+        appendEventLog(`Cannot load history: ${message}`)
+        appendSystemMessage(selectedChatId, `Cannot load history: ${message}`)
       })
       .finally(() => {
         setIsHistoryLoading(false)
       })
-  }, [appendEventLog, appendSystemMessage, currentUserId, loadHistory, selectedChatId])
+  }, [
+    appendEventLog,
+    appendSystemMessage,
+    currentUserId,
+    handleUnauthorizedAccess,
+    loadHistory,
+    selectedChatId,
+  ])
 
   useEffect(() => {
     if (status !== 'connected' || !currentUserId) {
@@ -590,13 +1109,7 @@ export function App() {
         return
       }
 
-      void sendTypingCommand(
-        {
-          type: 'TYPING_START',
-          chatId,
-        },
-        { log: false },
-      )
+      void sendTypingCommand({ type: 'TYPING_START', chatId }, { log: false })
     }, TYPING_REFRESH_INTERVAL_MS)
 
     return () => {
@@ -626,79 +1139,51 @@ export function App() {
     }
   }, [appendEventLog, cleanupCallSession, clearTypingRefreshTimer])
 
-  const handleConnect = () => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      appendEventLog('Already connected.')
+  const handleConnect = useCallback(() => {
+    if (!authSession || !currentUserId) {
+      setAuthError('Sign in first to connect the realtime workspace.')
       return
     }
 
-    if (!serverUrl.trim() || !currentUserId) {
-      appendEventLog('Server URL and user ID are required.')
-      return
-    }
+    connectAuthenticatedSocket(authSession.accessToken, currentUserId)
+  }, [authSession, connectAuthenticatedSocket, currentUserId])
 
-    const url = buildWebSocketUrl(serverUrl, currentUserId)
-    const socket = new WebSocket(url)
-    socketRef.current = socket
+  const handleLogout = useCallback(async () => {
+    const session = authSession
 
-    setStatus('connecting')
-    appendEventLog(`Connecting to ${url}`)
-
-    socket.onopen = () => {
-      setStatus('connected')
-      setIsBootstrapping(true)
-      setReadMarkers(loadReadMarkers(currentUserId))
-      appendEventLog(`WebSocket connected as ${currentUserId}.`)
-
-      Promise.all([refreshChats(currentUserId), refreshUsers(currentUserId)])
-        .catch((error: Error) => {
-          appendEventLog(`Cannot load initial data: ${error.message}`)
-        })
-        .finally(() => {
-          setIsBootstrapping(false)
-        })
-    }
-
-    socket.onmessage = (event) => {
-      handleSocketMessage(String(event.data))
-    }
-
-    socket.onerror = () => {
-      appendEventLog('WebSocket error.')
-      appendSystemMessage(selectedChatIdRef.current, 'WebSocket error.')
-    }
-
-    socket.onclose = () => {
-      setStatus('disconnected')
-      setIsBootstrapping(false)
-      setIsHistoryLoading(false)
-      appendEventLog('WebSocket closed.')
-      setChats([])
-      setRemoteTypingByChatId({})
-      setUsers({})
-      setThreads({})
-      setSelectedChatId(null)
-      setReadMarkers({})
-      cleanupCallSession('socket-closed')
-      clearTypingRefreshTimer()
-      activeTypingChatIdRef.current = null
-      socketRef.current = null
-    }
-  }
-
-  const handleDisconnect = () => {
-    if (!socketRef.current) {
-      appendEventLog('No active connection.')
-      return
+    if (session) {
+      try {
+        await logoutCurrentSession(serverUrl, session.accessToken)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Logout failed.'
+        appendEventLog(`Logout request failed: ${message}`)
+      }
     }
 
     endActiveCall({ notifyRemote: true })
     stopLocalTyping(activeTypingChatIdRef.current)
-    socketRef.current.close()
-  }
+    socketRef.current?.close()
+    socketRef.current = null
+    clearStoredAuthSession(serverUrl)
+    clearPendingAuthRedirect()
+    clearPendingAuthProvider()
+    setAuthSession(null)
+    setAuthUser(null)
+    setAuthStatus('unauthenticated')
+    setAuthCode('')
+    setAuthError(null)
+    resetRealtimeState('logout')
+  }, [
+    appendEventLog,
+    authSession,
+    endActiveCall,
+    resetRealtimeState,
+    serverUrl,
+    stopLocalTyping,
+  ])
 
-  const handleCreateChat = async () => {
-    if (socketRef.current?.readyState !== WebSocket.OPEN) {
+  const handleCreateChat = useCallback(async () => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN || !authSession) {
       appendEventLog('Connect first.')
       return
     }
@@ -711,19 +1196,37 @@ export function App() {
     }
 
     try {
-      const chat = await createChat(serverUrl, currentUserId, username)
+      const chat = await createChat(serverUrl, authSession.accessToken, username)
       setNewChatUserId('')
       appendEventLog(`Chat created: ${chat.chatId}`)
-      await Promise.all([refreshChats(currentUserId), refreshUsers(currentUserId)])
+      await Promise.all([
+        refreshChats(authSession.accessToken, currentUserId),
+        refreshUsers(authSession.accessToken),
+      ])
       setSelectedChatId(chat.chatId)
     } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorizedAccess(error.message)
+        return
+      }
+
       const message = error instanceof Error ? error.message : 'Create chat failed.'
       appendEventLog(`Create chat failed: ${message}`)
       appendSystemMessage(selectedChatIdRef.current, `Create chat failed: ${message}`)
     }
-  }
+  }, [
+    appendEventLog,
+    appendSystemMessage,
+    authSession,
+    currentUserId,
+    handleUnauthorizedAccess,
+    newChatUserId,
+    refreshChats,
+    refreshUsers,
+    serverUrl,
+  ])
 
-  const handleSendMessage = () => {
+  const handleSendMessage = useCallback(() => {
     if (socketRef.current?.readyState !== WebSocket.OPEN) {
       appendEventLog('Connect first.')
       return
@@ -744,7 +1247,7 @@ export function App() {
     appendEventLog(`Sent: ${JSON.stringify(payload)}`)
     stopLocalTyping(selectedThread.chatId)
     setMessageDraft('')
-  }
+  }, [appendEventLog, messageDraft, selectedThread, stopLocalTyping])
 
   const selectedCallState =
     activeCallState && activeCallState.chatId === selectedChatId ? activeCallState : null
@@ -788,13 +1291,24 @@ export function App() {
           <AnimatePresence>
             {showWelcome ? (
               <WelcomeExperience
+                authError={authError}
+                authStatus={authStatus}
+                currentUser={authUser}
+                providerRedirectEnabled={providerRedirectEnabled}
+                providerLabel={
+                  AUTH_PROVIDERS.find((provider) => provider.id === selectedProvider)?.label ??
+                  selectedProvider
+                }
                 serverUrl={serverUrl}
-                userId={userId}
                 status={status}
-                onServerUrlChange={setServerUrl}
-                onUserIdChange={setUserId}
                 onConnect={handleConnect}
-                onDisconnect={handleDisconnect}
+                onLogout={() => {
+                  void handleLogout()
+                }}
+                onServerUrlChange={setServerUrl}
+                onStartGoogleLogin={() => {
+                  void handleStartProviderLogin()
+                }}
               />
             ) : null}
           </AnimatePresence>
@@ -806,10 +1320,13 @@ export function App() {
             eventLogLines={eventLog.slice(0, 18)}
             sidebarProps={{
               chats,
-              currentUserId,
+              currentUser: authUser,
+              currentUserId: currentUserLabel || currentUserId,
               newChatUserId,
               onCreateChat: handleCreateChat,
-              onDisconnect: handleDisconnect,
+              onDisconnect: () => {
+                void handleLogout()
+              },
               onNewChatUserIdChange: setNewChatUserId,
               onSelectChat: handleSelectChat,
               selectedChatId,
@@ -836,6 +1353,7 @@ export function App() {
               },
               pendingParticipantName:
                 selectedThread?.participant ?? selectedChatSummary?.username ?? null,
+              participantProfile: selectedChatSummary,
               remoteCallStream,
               remoteTypingLabel,
               thread: selectedThread,

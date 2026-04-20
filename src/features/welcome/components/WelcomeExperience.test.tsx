@@ -3,43 +3,49 @@ import userEvent from '@testing-library/user-event'
 import { WelcomeExperience } from './WelcomeExperience'
 
 describe('WelcomeExperience', () => {
-  test('renders connection status copy and delegates control handlers', async () => {
+  test('renders the authenticated user and delegates welcome actions', async () => {
     const user = userEvent.setup()
     const onServerUrlChange = vi.fn()
-    const onUserIdChange = vi.fn()
     const onConnect = vi.fn()
-    const onDisconnect = vi.fn()
+    const onLogout = vi.fn()
+    const onStartGoogleLogin = vi.fn()
 
     render(
       <WelcomeExperience
+        authError={null}
+        authStatus="authenticated"
+        currentUser={{
+          userId: 'user-1',
+          username: 'alice',
+          email: 'alice@example.com',
+          displayName: 'Alice Example',
+          provider: 'google',
+        }}
+        providerLabel="Google"
+        providerRedirectEnabled
         serverUrl="ws://192.168.0.10:8080/ws/user"
-        userId="alice"
         status="connected"
         onServerUrlChange={onServerUrlChange}
-        onUserIdChange={onUserIdChange}
         onConnect={onConnect}
-        onDisconnect={onDisconnect}
+        onLogout={onLogout}
+        onStartGoogleLogin={onStartGoogleLogin}
       />,
     )
 
-    expect(screen.getByText('Identity: alice')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        /Realtime channel is live. Step into the workspace and continue the conversation./,
-      ),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Alice Example')).toBeInTheDocument()
+    expect(screen.getByText('Welcome back')).toBeInTheDocument()
+    expect(screen.getByText('Signed in as Alice Example.')).toBeInTheDocument()
+    expect(screen.getByText('Provider: google')).toBeInTheDocument()
+    expect(screen.getByText('Workspace connected.')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Server URL'), {
       target: { value: 'ws://example.test/ws/user' },
     })
-    fireEvent.change(screen.getByLabelText('Your user ID'), {
-      target: { value: 'bob' },
-    })
-    await user.click(screen.getByRole('button', { name: 'Connect' }))
+    await user.click(screen.getByRole('button', { name: 'Enter workspace' }))
 
     expect(onServerUrlChange).toHaveBeenLastCalledWith('ws://example.test/ws/user')
-    expect(onUserIdChange).toHaveBeenLastCalledWith('bob')
+    expect(onStartGoogleLogin).not.toHaveBeenCalled()
     expect(onConnect).toHaveBeenCalledTimes(1)
-    expect(onDisconnect).not.toHaveBeenCalled()
+    expect(onLogout).not.toHaveBeenCalled()
   })
 })

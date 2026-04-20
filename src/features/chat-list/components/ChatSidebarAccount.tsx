@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import type { RefObject } from 'react'
 import { itemReveal, panelTransition, springTransition } from '../../../shared/motion/presets'
+import type { AuthUserProfile } from '../../../shared/types/auth'
 import { getInitials } from './chatSidebarShared'
 
 interface ChatSidebarAccountProps {
-  currentUserLabel: string
+  currentUser: AuthUserProfile | null
   isUserMenuOpen: boolean
   userMenuRef: RefObject<HTMLDivElement | null>
   onDisconnect: () => void
@@ -12,14 +13,29 @@ interface ChatSidebarAccountProps {
   onCloseUserMenu: () => void
 }
 
+function getUserDisplayName(currentUser: AuthUserProfile | null) {
+  if (!currentUser) {
+    return 'Guest'
+  }
+
+  const fullName = [currentUser.firstName?.trim(), currentUser.lastName?.trim()]
+    .filter(Boolean)
+    .join(' ')
+
+  return fullName || currentUser.displayName?.trim() || currentUser.username || currentUser.email
+}
+
 export function ChatSidebarAccount({
-  currentUserLabel,
+  currentUser,
   isUserMenuOpen,
   userMenuRef,
   onDisconnect,
   onToggleUserMenu,
   onCloseUserMenu,
 }: ChatSidebarAccountProps) {
+  const displayName = getUserDisplayName(currentUser)
+  const email = currentUser?.email?.trim() || 'Not signed in'
+
   return (
     <motion.div className="sidebar-user-shell" variants={itemReveal} ref={userMenuRef}>
       <div className="sidebar-user-divider" aria-hidden="true" />
@@ -51,10 +67,20 @@ export function ChatSidebarAccount({
         ) : null}
       </AnimatePresence>
       <div className="sidebar-user-card">
-        <div className="sidebar-user-avatar">{getInitials(currentUserLabel)}</div>
+        <div className="sidebar-user-avatar">
+          {currentUser?.pictureUrl ? (
+            <img
+              className="sidebar-user-avatar-image"
+              src={currentUser.pictureUrl}
+              alt={displayName}
+            />
+          ) : (
+            getInitials(displayName)
+          )}
+        </div>
         <div className="sidebar-user-copy">
-          <span className="sidebar-user-label">Signed in as</span>
-          <strong>{currentUserLabel}</strong>
+          <strong>{displayName}</strong>
+          <span className="sidebar-user-email">{email}</span>
         </div>
         <motion.button
           className={`sidebar-user-action ${isUserMenuOpen ? 'is-open' : ''}`}

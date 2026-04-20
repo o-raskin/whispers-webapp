@@ -6,6 +6,7 @@ describe('ChatSidebar', () => {
   test('shows the waiting empty state when disconnected', () => {
     render(
       <ChatSidebar
+        currentUser={null}
         currentUserId=""
         chats={[]}
         selectedChatId={null}
@@ -29,11 +30,15 @@ describe('ChatSidebar', () => {
   test('shows chat list edge fades only when the list can scroll', async () => {
     render(
       <ChatSidebar
+        currentUser={null}
         currentUserId="alice"
         chats={[
           {
             chatId: 'chat-1',
             username: 'bob',
+            type: 'DIRECT',
+            firstName: 'Bob',
+            lastName: 'Example',
             preview: 'Latest note',
             lastMessageTimestamp: '2026-04-12T10:00:00',
           },
@@ -71,6 +76,7 @@ describe('ChatSidebar', () => {
     fireEvent(window, new Event('resize'))
 
     await screen.findByText('Latest note')
+    expect(screen.getByText('Bob Example')).toBeInTheDocument()
     expect(topFade).not.toHaveClass('visible')
     expect(bottomFade).toHaveClass('visible')
 
@@ -96,11 +102,23 @@ describe('ChatSidebar', () => {
 
     render(
       <ChatSidebar
+        currentUser={{
+          userId: 'user-1',
+          username: 'alice',
+          email: 'alice@example.com',
+          firstName: 'Alice',
+          lastName: 'Johnson',
+          pictureUrl: 'https://example.com/alice.png',
+        }}
         currentUserId="alice"
         chats={[
           {
             chatId: 'chat-1',
             username: 'bob',
+            type: 'DIRECT',
+            firstName: 'Bob',
+            lastName: 'Example',
+            profileUrl: 'https://example.com/bob.png',
             preview: 'Latest note',
             lastMessageTimestamp: '2026-04-10T10:00:00',
             unreadCount: 2,
@@ -141,9 +159,19 @@ describe('ChatSidebar', () => {
     expect(onDisconnect).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('menu', { name: 'Account menu' })).not.toBeInTheDocument()
     expect(onSelectChat).toHaveBeenCalledWith('chat-1')
+    expect(screen.getByText('Bob Example')).toBeInTheDocument()
+    expect(screen.getByAltText('Bob Example')).toHaveAttribute(
+      'src',
+      'https://example.com/bob.png',
+    )
     expect(screen.getByText('Latest note')).toBeInTheDocument()
     expect(screen.getByText('2')).toBeInTheDocument()
     expect(screen.getByText('Fri')).toBeInTheDocument()
-    expect(screen.getByText('AL')).toBeInTheDocument()
+    expect(screen.getByText('Alice Johnson')).toBeInTheDocument()
+    expect(screen.getByText('alice@example.com')).toBeInTheDocument()
+    expect(screen.getByAltText('Alice Johnson')).toHaveAttribute(
+      'src',
+      'https://example.com/alice.png',
+    )
   })
 })

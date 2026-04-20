@@ -9,6 +9,12 @@ import {
 import { formatTimestamp } from '../../../shared/utils/presence'
 import './conversation-history.css'
 
+interface ParticipantProfile {
+  firstName?: string | null
+  lastName?: string | null
+  username: string
+}
+
 interface ConversationHistoryProps {
   currentUserId: string
   handleHistoryBottomAnchorRef: (node: HTMLDivElement | null) => void
@@ -17,12 +23,21 @@ interface ConversationHistoryProps {
   isMobileLayout: boolean
   onHistoryAnimationComplete: () => void
   onScrollToLatest: (behavior?: ScrollBehavior) => void
+  participantProfile: ParticipantProfile | null
   showHistoryLoadingState: boolean
   thread: ChatThread | null
   visibleHistoryFadeState: {
     showBottomFade: boolean
     showTopFade: boolean
   }
+}
+
+function getParticipantMessageLabel(participantProfile: ParticipantProfile | null, fallback: string) {
+  const fullName = [participantProfile?.firstName?.trim(), participantProfile?.lastName?.trim()]
+    .filter(Boolean)
+    .join(' ')
+
+  return fullName || participantProfile?.username || fallback
 }
 
 export function ConversationHistory({
@@ -33,10 +48,16 @@ export function ConversationHistory({
   isMobileLayout,
   onHistoryAnimationComplete,
   onScrollToLatest,
+  participantProfile,
   showHistoryLoadingState,
   thread,
   visibleHistoryFadeState,
 }: ConversationHistoryProps) {
+  const participantMessageLabel = getParticipantMessageLabel(
+    participantProfile,
+    thread?.participant ?? 'Someone',
+  )
+
   return (
     <motion.div className="history-shell" variants={itemReveal}>
       <div className="history-viewport">
@@ -125,7 +146,9 @@ export function ConversationHistory({
                         >
                           {showMeta ? (
                             <span className="message-meta">
-                              {message.senderUserId === currentUserId ? 'You' : message.senderUserId}
+                              {message.senderUserId === currentUserId
+                                ? 'You'
+                                : participantMessageLabel}
                             </span>
                           ) : null}
                           <span className="message-body">{message.text}</span>

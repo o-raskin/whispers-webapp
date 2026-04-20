@@ -1,4 +1,5 @@
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected'
+export type ChatType = 'DIRECT' | 'GROUP'
 
 export interface UserPresence {
   username: string
@@ -26,9 +27,22 @@ export interface MessageRecord {
 export interface ChatSummary {
   chatId: string
   username: string
+  type?: ChatType
+  firstName?: string | null
+  lastName?: string | null
+  profileUrl?: string | null
   preview?: string
   lastMessageTimestamp?: string
   unreadCount?: number
+}
+
+export interface UserProfile {
+  userId: string
+  username: string
+  firstName?: string | null
+  lastName?: string | null
+  profileUrl?: string | null
+  provider?: string | null
 }
 
 export interface ChatThread {

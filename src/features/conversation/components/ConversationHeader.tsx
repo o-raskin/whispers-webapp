@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import type { ChatThread } from '../../../shared/types/chat'
+import type { ChatSummary, ChatThread } from '../../../shared/types/chat'
 import { itemReveal, springTransition } from '../../../shared/motion/presets'
 import { getInitials } from './conversationPanelShared'
 import './conversation-header.css'
@@ -13,10 +13,25 @@ interface ConversationHeaderProps {
   isRecipientOnline: boolean
   isRemoteTyping: boolean
   pendingParticipant: string | null
+  participantProfile: Pick<ChatSummary, 'firstName' | 'lastName' | 'profileUrl' | 'username'> | null
   subtitle: string
   thread: ChatThread | null
   onBackToInbox: () => void
   onCallButtonClick: () => void
+}
+
+function getParticipantDisplayName(
+  participantProfile: Pick<ChatSummary, 'firstName' | 'lastName' | 'username'> | null,
+) {
+  if (!participantProfile) {
+    return ''
+  }
+
+  const fullName = [participantProfile.firstName?.trim(), participantProfile.lastName?.trim()]
+    .filter(Boolean)
+    .join(' ')
+
+  return fullName || participantProfile.username
 }
 
 export function ConversationHeader({
@@ -28,11 +43,15 @@ export function ConversationHeader({
   isRecipientOnline,
   isRemoteTyping,
   pendingParticipant,
+  participantProfile,
   subtitle,
   thread,
   onBackToInbox,
   onCallButtonClick,
 }: ConversationHeaderProps) {
+  const participantDisplayName =
+    getParticipantDisplayName(participantProfile) || pendingParticipant || thread?.participant || 'W'
+
   return (
     <motion.div className="conversation-header" variants={itemReveal}>
       <div className="conversation-persona">
@@ -64,11 +83,15 @@ export function ConversationHeader({
           whileHover={{ scale: 1.03, rotate: -4 }}
           transition={springTransition}
         >
-          {thread
-            ? getInitials(thread.participant)
-            : pendingParticipant
-              ? getInitials(pendingParticipant)
-              : 'W'}
+          {participantProfile?.profileUrl ? (
+            <img
+              className="conversation-avatar-image"
+              src={participantProfile.profileUrl}
+              alt={participantDisplayName}
+            />
+          ) : (
+            getInitials(participantDisplayName)
+          )}
         </motion.div>
         <div className="conversation-copy">
           <h2>{conversationTitle}</h2>
