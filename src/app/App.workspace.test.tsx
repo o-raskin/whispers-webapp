@@ -43,7 +43,12 @@ describe('App workspace flows', () => {
     await waitFor(() => {
       expect(
         privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity,
-      ).toHaveBeenCalledWith(DEFAULT_WS_URL, 'access-token', 'alice')
+      ).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'alice@example.com',
+        ['user-1', 'alice'],
+      )
     })
   })
 
@@ -121,6 +126,33 @@ describe('App workspace flows', () => {
 
     await waitFor(() => {
       expect(localStorage.getItem('whispers-read-markers:alice')).toContain('chat-1')
+    })
+  })
+
+  test('waits for a browser private key before fetching chats', async () => {
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    privateServiceMocks.mockLoadPrivateChatBrowserIdentity.mockResolvedValue(null)
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(
+        privateServiceMocks.mockEnsureRegisteredPrivateChatBrowserIdentity,
+      ).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'alice@example.com',
+        ['user-1', 'alice'],
+      )
+      expect(apiMocks.mockFetchChats).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'alice-browser-key',
+      )
     })
   })
 

@@ -59,6 +59,8 @@ interface UsePrivateChatManagerArgs {
   authStatus: AuthStatus
   chatsRef: MutableRefObject<ChatSummary[]>
   currentUserId: string
+  privateChatOwnerFallbackIds: string[]
+  privateChatOwnerId: string
   decryptPrivateRecord: (
     message: PrivateMessageRecord,
     nextUserId: string,
@@ -94,6 +96,8 @@ export function usePrivateChatManager({
   authStatus,
   chatsRef,
   currentUserId,
+  privateChatOwnerFallbackIds,
+  privateChatOwnerId,
   decryptPrivateRecord,
   handleUnauthorizedAccess,
   markChatAsRead,
@@ -113,6 +117,9 @@ export function usePrivateChatManager({
   upsertMessages,
 }: UsePrivateChatManagerArgs) {
   const privateKeyBootstrapRef = useRef<string | null>(null)
+  const privateChatIdentityRef = useRef<
+    Awaited<ReturnType<typeof loadPrivateChatBrowserIdentity>>
+  >(null)
 
   const updatePrivateChatSession = useCallback((
     chatId: string,
@@ -130,14 +137,14 @@ export function usePrivateChatManager({
     if (
       authStatus !== 'authenticated' ||
       !authSession ||
-      !currentUserId ||
+      !privateChatOwnerId ||
       !privateChatFeatureSupported
     ) {
       privateKeyBootstrapRef.current = null
       return
     }
 
-    const bootstrapKey = `${serverUrl}|${currentUserId}|${authSession.accessToken}`
+    const bootstrapKey = `${serverUrl}|${privateChatOwnerId}|${authSession.accessToken}`
 
     if (privateKeyBootstrapRef.current === bootstrapKey) {
       return
@@ -150,7 +157,8 @@ export function usePrivateChatManager({
     void ensureRegisteredPrivateChatBrowserIdentity(
       serverUrl,
       authSession.accessToken,
-      currentUserId,
+      privateChatOwnerId,
+      privateChatOwnerFallbackIds,
     )
       .then(() => {
         if (isCancelled) {
@@ -183,8 +191,10 @@ export function usePrivateChatManager({
     appendEventLog,
     authSession,
     authStatus,
-    currentUserId,
     handleUnauthorizedAccess,
+    currentUserId,
+    privateChatOwnerFallbackIds,
+    privateChatOwnerId,
     privateChatFeatureSupported,
     serverUrl,
   ])
@@ -199,7 +209,7 @@ export function usePrivateChatManager({
       return false
     }
 
-    if (!authSession || !currentUserId) {
+    if (!authSession || !privateChatOwnerId) {
       return true
     }
 
@@ -219,16 +229,24 @@ export function usePrivateChatManager({
       accessState: options?.allowPrivateKeySetup ? 'setting-up' : 'loading',
     }))
 
-    let localIdentity = await loadPrivateChatBrowserIdentity(currentUserId)
+    let localIdentity = await loadPrivateChatBrowserIdentity(
+      privateChatOwnerId,
+      privateChatOwnerFallbackIds,
+    )
 
     if (!localIdentity && options?.allowPrivateKeySetup) {
       const registration = await ensureRegisteredPrivateChatBrowserIdentity(
         serverUrl,
         authSession.accessToken,
-        currentUserId,
+        privateChatOwnerId,
+        privateChatOwnerFallbackIds,
       )
 
       localIdentity = registration.identity
+    }
+
+    if (localIdentity) {
+      privateChatIdentityRef.current = localIdentity
     }
 
     let metadata = localIdentity
@@ -292,9 +310,11 @@ export function usePrivateChatManager({
   }, [
     authSession,
     chatsRef,
-    currentUserId,
     decryptPrivateRecord,
     markChatAsRead,
+    currentUserId,
+    privateChatOwnerFallbackIds,
+    privateChatOwnerId,
     privateChatFeatureSupported,
     serverUrl,
     syncChatPreview,
@@ -307,9 +327,19 @@ export function usePrivateChatManager({
     message: PrivateMessageRecord,
     accessToken: string,
   ) => {
-    const localIdentity = privateChatFeatureSupported
-      ? await loadPrivateChatBrowserIdentity(currentUserId).catch(() => null)
+    const cachedIdentity = privateChatIdentityRef.current
+    const resolvedIdentity = privateChatFeatureSupported
+      ? await loadPrivateChatBrowserIdentity(
+          privateChatOwnerId,
+          privateChatOwnerFallbackIds,
+        ).catch(() => cachedIdentity)
       : null
+    const localIdentity = resolvedIdentity ?? cachedIdentity
+
+    if (localIdentity) {
+      privateChatIdentityRef.current = localIdentity
+    }
+
     const normalizedMessage = await decryptPrivateRecord(
       message,
       currentUserId,
@@ -320,14 +350,16 @@ export function usePrivateChatManager({
       ...current,
       accessState: localIdentity
         ? 'ready'
+        : current.accessState === 'ready'
+          ? 'ready'
+          : privateChatFeatureSupported
+            ? 'missing-key'
+            : 'error',
+      notice: localIdentity || current.accessState === 'ready'
+        ? PRIVATE_CHAT_READY_NOTICE
         : privateChatFeatureSupported
-          ? 'missing-key'
-          : 'error',
-      notice: localIdentity
-        ? current.notice ?? PRIVATE_CHAT_READY_NOTICE
-        : privateChatFeatureSupported
-          ? current.notice ?? `${PRIVATE_CHAT_MISSING_KEY_NOTICE} ${PRIVATE_CHAT_SETUP_NOTICE}`
-          : current.notice ?? PRIVATE_CHAT_UNSUPPORTED_NOTICE,
+          ? `${PRIVATE_CHAT_MISSING_KEY_NOTICE} ${PRIVATE_CHAT_SETUP_NOTICE}`
+          : PRIVATE_CHAT_UNSUPPORTED_NOTICE,
     }))
 
     const chat = chatsRef.current.find((entry) => entry.chatId === normalizedMessage.chatId)
@@ -363,6 +395,8 @@ export function usePrivateChatManager({
     currentUserId,
     decryptPrivateRecord,
     markChatAsRead,
+    privateChatOwnerFallbackIds,
+    privateChatOwnerId,
     privateChatFeatureSupported,
     refreshChats,
     selectedChatIdRef,
@@ -372,7 +406,7 @@ export function usePrivateChatManager({
   ])
 
   const createPrivateChatForUser = useCallback(async (username: string) => {
-    if (!authSession || !currentUserId) {
+    if (!authSession || !privateChatOwnerId) {
       appendEventLog('Connect first.')
       return null
     }
@@ -382,13 +416,17 @@ export function usePrivateChatManager({
       return null
     }
 
-    let localIdentity = await loadPrivateChatBrowserIdentity(currentUserId)
+    let localIdentity = await loadPrivateChatBrowserIdentity(
+      privateChatOwnerId,
+      privateChatOwnerFallbackIds,
+    )
 
     if (!localIdentity) {
       const registration = await ensureRegisteredPrivateChatBrowserIdentity(
         serverUrl,
         authSession.accessToken,
-        currentUserId,
+        privateChatOwnerId,
+        privateChatOwnerFallbackIds,
       )
       localIdentity = registration.identity
     }
@@ -412,6 +450,8 @@ export function usePrivateChatManager({
     authSession,
     currentUserId,
     privateChatFeatureSupported,
+    privateChatOwnerFallbackIds,
+    privateChatOwnerId,
     refreshChats,
     refreshUsers,
     serverUrl,
@@ -453,7 +493,7 @@ export function usePrivateChatManager({
       return true
     }
 
-    if (!authSession || !currentUserId) {
+    if (!authSession || !privateChatOwnerId) {
       appendEventLog('Sign back in before sending a private message.')
       return true
     }
@@ -469,19 +509,27 @@ export function usePrivateChatManager({
     }
 
     try {
-      let localIdentity = await loadPrivateChatBrowserIdentity(currentUserId)
+      let localIdentity = await loadPrivateChatBrowserIdentity(
+        privateChatOwnerId,
+        privateChatOwnerFallbackIds,
+      )
 
       if (!localIdentity) {
         await loadPrivateHistory(selectedThread.chatId, {
           allowPrivateKeySetup: true,
         })
-        localIdentity = await loadPrivateChatBrowserIdentity(currentUserId)
+        localIdentity = await loadPrivateChatBrowserIdentity(
+          privateChatOwnerId,
+          privateChatOwnerFallbackIds,
+        )
       }
 
       if (!localIdentity) {
         appendEventLog('Set up this browser before sending private messages.')
         return true
       }
+
+      privateChatIdentityRef.current = localIdentity
 
       let metadata = privateChatSessions[selectedThread.chatId]?.metadata
 
@@ -552,9 +600,10 @@ export function usePrivateChatManager({
     appendEventLog,
     authSession,
     chatsRef,
-    currentUserId,
     handleUnauthorizedAccess,
     loadPrivateHistory,
+    privateChatOwnerFallbackIds,
+    privateChatOwnerId,
     privateChatFeatureSupported,
     privateChatSessions,
     serverUrl,

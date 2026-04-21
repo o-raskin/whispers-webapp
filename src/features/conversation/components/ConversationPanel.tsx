@@ -149,10 +149,11 @@ export function ConversationPanel({
   const {
     handleHistoryBottomAnchorRef,
     historyFadeState,
+    isHistoryAtBottom,
     historyRef,
     isHistoryAnchored,
     scrollHistoryToLatest,
-    setIsHistoryAnchored,
+    updateHistoryViewportState,
   } = useConversationHistoryViewport({
     messageCount: thread?.messages.length ?? 0,
     showHistoryLoadingState,
@@ -224,10 +225,10 @@ export function ConversationPanel({
         handleHistoryBottomAnchorRef={handleHistoryBottomAnchorRef}
         historyRef={historyRef}
         isHistoryAnchored={isHistoryAnchored}
+        isHistoryAtBottom={isHistoryAtBottom}
         isMobileLayout={isMobileLayout}
         onHistoryAnimationComplete={() => {
-          scrollHistoryToLatest()
-          setIsHistoryAnchored(true)
+          updateHistoryViewportState()
         }}
         onScrollToLatest={scrollHistoryToLatest}
         participantProfile={participantProfile}

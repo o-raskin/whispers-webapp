@@ -20,6 +20,14 @@ interface CreatePrivateChatKeyManagerOptions {
   randomUUID?: () => string
 }
 
+function toOwnerLookupOrder(ownerId: string, fallbackOwnerIds: string[] = []) {
+  const ownerIds = [ownerId, ...fallbackOwnerIds]
+    .map((value) => value.trim())
+    .filter(Boolean)
+
+  return Array.from(new Set(ownerIds))
+}
+
 function getRuntimeRandomUuid() {
   if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
     throw new Error('Private chats need a browser runtime with secure random UUID support.')
@@ -38,8 +46,31 @@ export function createPrivateChatKeyManager({
   randomUUID = getRuntimeRandomUuid,
 }: CreatePrivateChatKeyManagerOptions = {}) {
   return {
-    async ensureIdentity(ownerId: string): Promise<EnsurePrivateChatBrowserIdentityResult> {
-      const existingIdentity = await keyStore.get(ownerId)
+    async ensureIdentity(
+      ownerId: string,
+      fallbackOwnerIds: string[] = [],
+    ): Promise<EnsurePrivateChatBrowserIdentityResult> {
+      const ownerLookupOrder = toOwnerLookupOrder(ownerId, fallbackOwnerIds)
+      let existingIdentity: PrivateChatBrowserKeyRecord | null = null
+
+      for (const candidateOwnerId of ownerLookupOrder) {
+        existingIdentity = await keyStore.get(candidateOwnerId)
+
+        if (!existingIdentity) {
+          continue
+        }
+
+        if (candidateOwnerId !== ownerId) {
+          existingIdentity = {
+            ...existingIdentity,
+            ownerId,
+            updatedAt: now(),
+          }
+          await keyStore.put(existingIdentity)
+        }
+
+        break
+      }
 
       if (existingIdentity) {
         return {
@@ -63,20 +94,45 @@ export function createPrivateChatKeyManager({
       }
     },
 
-    async loadIdentity(ownerId: string) {
-      return keyStore.get(ownerId)
+    async loadIdentity(ownerId: string, fallbackOwnerIds: string[] = []) {
+      const ownerLookupOrder = toOwnerLookupOrder(ownerId, fallbackOwnerIds)
+
+      for (const candidateOwnerId of ownerLookupOrder) {
+        const identity = await keyStore.get(candidateOwnerId)
+
+        if (!identity) {
+          continue
+        }
+
+        if (candidateOwnerId !== ownerId) {
+          await keyStore.put({
+            ...identity,
+            ownerId,
+          })
+        }
+
+        return identity
+      }
+
+      return null
     },
   }
 }
 
 const browserPrivateChatKeyManager = createPrivateChatKeyManager()
 
-export async function loadPrivateChatBrowserIdentity(ownerId: string) {
-  return browserPrivateChatKeyManager.loadIdentity(ownerId)
+export async function loadPrivateChatBrowserIdentity(
+  ownerId: string,
+  fallbackOwnerIds: string[] = [],
+) {
+  return browserPrivateChatKeyManager.loadIdentity(ownerId, fallbackOwnerIds)
 }
 
-export async function ensurePrivateChatBrowserIdentity(ownerId: string) {
-  return browserPrivateChatKeyManager.ensureIdentity(ownerId)
+export async function ensurePrivateChatBrowserIdentity(
+  ownerId: string,
+  fallbackOwnerIds: string[] = [],
+) {
+  return browserPrivateChatKeyManager.ensureIdentity(ownerId, fallbackOwnerIds)
 }
 
 export async function registerPrivateChatBrowserIdentity(
@@ -96,8 +152,9 @@ export async function ensureRegisteredPrivateChatBrowserIdentity(
   serverUrl: string,
   accessToken: string,
   ownerId: string,
+  fallbackOwnerIds: string[] = [],
 ) {
-  const result = await ensurePrivateChatBrowserIdentity(ownerId)
+  const result = await ensurePrivateChatBrowserIdentity(ownerId, fallbackOwnerIds)
   const registeredKey = await registerPrivateChatBrowserIdentity(
     serverUrl,
     accessToken,

@@ -20,6 +20,7 @@ interface ConversationHistoryProps {
   handleHistoryBottomAnchorRef: (node: HTMLDivElement | null) => void
   historyRef: RefObject<HTMLDivElement | null>
   isHistoryAnchored: boolean
+  isHistoryAtBottom: boolean
   isMobileLayout: boolean
   onHistoryAnimationComplete: () => void
   onScrollToLatest: (behavior?: ScrollBehavior) => void
@@ -45,6 +46,7 @@ export function ConversationHistory({
   handleHistoryBottomAnchorRef,
   historyRef,
   isHistoryAnchored,
+  isHistoryAtBottom,
   isMobileLayout,
   onHistoryAnimationComplete,
   onScrollToLatest,
@@ -70,7 +72,7 @@ export function ConversationHistory({
           aria-hidden="true"
         />
         <AnimatePresence>
-          {thread && !showHistoryLoadingState && isHistoryAnchored && visibleHistoryFadeState.showBottomFade ? (
+          {thread && !showHistoryLoadingState && isHistoryAnchored && !isHistoryAtBottom ? (
             <motion.button
               key="history-scroll-button"
               className="history-scroll-button"

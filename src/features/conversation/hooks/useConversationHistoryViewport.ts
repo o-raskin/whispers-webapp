@@ -14,11 +14,49 @@ export function useConversationHistoryViewport({
   const historyRef = useRef<HTMLDivElement | null>(null)
   const historyBottomRef = useRef<HTMLDivElement | null>(null)
   const previousChatIdRef = useRef<string | null>(null)
+  const previousShowHistoryLoadingStateRef = useRef(showHistoryLoadingState)
   const [isHistoryAnchored, setIsHistoryAnchored] = useState(false)
+  const [isHistoryAtBottom, setIsHistoryAtBottom] = useState(false)
+  const isHistoryAtBottomRef = useRef(false)
   const [historyFadeState, setHistoryFadeState] = useState({
     showTopFade: false,
     showBottomFade: false,
   })
+
+  const updateHistoryViewportState = useCallback(() => {
+    const historyElement = historyRef.current
+
+    if (!historyElement) {
+      isHistoryAtBottomRef.current = false
+      setIsHistoryAtBottom(false)
+      setHistoryFadeState({
+        showTopFade: false,
+        showBottomFade: false,
+      })
+      return
+    }
+
+    const { scrollTop, scrollHeight, clientHeight } = historyElement
+    const maxScrollTop = Math.max(scrollHeight - clientHeight, 0)
+    const threshold = 6
+    const hasOverflow = maxScrollTop > threshold
+    const nextIsHistoryAtBottom = !hasOverflow || scrollTop >= maxScrollTop - threshold
+    const nextFadeState = {
+      showTopFade: hasOverflow && scrollTop > threshold,
+      showBottomFade: hasOverflow && scrollTop < maxScrollTop - threshold,
+    }
+
+    isHistoryAtBottomRef.current = nextIsHistoryAtBottom
+    setIsHistoryAtBottom((current) =>
+      current === nextIsHistoryAtBottom ? current : nextIsHistoryAtBottom,
+    )
+    setHistoryFadeState((current) =>
+      current.showTopFade === nextFadeState.showTopFade &&
+      current.showBottomFade === nextFadeState.showBottomFade
+        ? current
+        : nextFadeState,
+    )
+  }, [])
 
   const scrollHistoryToLatest = useCallback((behavior: ScrollBehavior = 'auto') => {
     const historyElement = historyRef.current
@@ -35,41 +73,27 @@ export function useConversationHistoryViewport({
     bottomAnchor?.scrollIntoView({ block: 'end', behavior })
   }, [])
 
-  const updateHistoryFadeState = useCallback(() => {
-    const historyElement = historyRef.current
-
-    if (!historyElement) {
-      setHistoryFadeState({
-        showTopFade: false,
-        showBottomFade: false,
-      })
-      return
-    }
-
-    const { scrollTop, scrollHeight, clientHeight } = historyElement
-    const maxScrollTop = Math.max(scrollHeight - clientHeight, 0)
-    const threshold = 6
-    const hasOverflow = maxScrollTop > threshold
-
-    setHistoryFadeState({
-      showTopFade: hasOverflow && scrollTop > threshold,
-      showBottomFade: hasOverflow && scrollTop < maxScrollTop - threshold,
-    })
-  }, [])
-
   const handleHistoryBottomAnchorRef = useCallback((node: HTMLDivElement | null) => {
     historyBottomRef.current = node
   }, [])
 
   useLayoutEffect(() => {
     const previousChatId = previousChatIdRef.current
+    const previousShowHistoryLoadingState = previousShowHistoryLoadingStateRef.current
     const didChatChange = threadChatId !== previousChatId
+    const didFinishLoadingSelectedThread =
+      Boolean(threadChatId) &&
+      previousShowHistoryLoadingState &&
+      !showHistoryLoadingState
 
     previousChatIdRef.current = threadChatId
+    previousShowHistoryLoadingStateRef.current = showHistoryLoadingState
 
     if (!threadChatId) {
       const frameId = window.requestAnimationFrame(() => {
         setIsHistoryAnchored(true)
+        setIsHistoryAtBottom(true)
+        isHistoryAtBottomRef.current = true
       })
 
       return () => {
@@ -80,6 +104,8 @@ export function useConversationHistoryViewport({
     if (showHistoryLoadingState) {
       const frameId = window.requestAnimationFrame(() => {
         setIsHistoryAnchored(false)
+        setIsHistoryAtBottom(false)
+        isHistoryAtBottomRef.current = false
       })
 
       return () => {
@@ -87,11 +113,16 @@ export function useConversationHistoryViewport({
       }
     }
 
-    if (didChatChange) {
+    if (didChatChange || didFinishLoadingSelectedThread) {
       const frameId = window.requestAnimationFrame(() => {
         setIsHistoryAnchored(false)
         scrollHistoryToLatest()
-        updateHistoryFadeState()
+        setIsHistoryAtBottom(true)
+        isHistoryAtBottomRef.current = true
+        window.requestAnimationFrame(() => {
+          setIsHistoryAnchored(true)
+          updateHistoryViewportState()
+        })
       })
 
       return () => {
@@ -100,14 +131,13 @@ export function useConversationHistoryViewport({
     }
 
     const frameId = window.requestAnimationFrame(() => {
-      setIsHistoryAnchored(true)
-      updateHistoryFadeState()
+      updateHistoryViewportState()
     })
 
     return () => {
       window.cancelAnimationFrame(frameId)
     }
-  }, [scrollHistoryToLatest, showHistoryLoadingState, threadChatId, updateHistoryFadeState])
+  }, [scrollHistoryToLatest, showHistoryLoadingState, threadChatId, updateHistoryViewportState])
 
   useLayoutEffect(() => {
     if (showHistoryLoadingState || !threadChatId) {
@@ -115,9 +145,10 @@ export function useConversationHistoryViewport({
     }
 
     const frameId = window.requestAnimationFrame(() => {
-      scrollHistoryToLatest()
-      setIsHistoryAnchored(true)
-      updateHistoryFadeState()
+      if (isHistoryAtBottomRef.current) {
+        scrollHistoryToLatest()
+      }
+      updateHistoryViewportState()
     })
 
     return () => {
@@ -128,7 +159,7 @@ export function useConversationHistoryViewport({
     scrollHistoryToLatest,
     showHistoryLoadingState,
     threadChatId,
-    updateHistoryFadeState,
+    updateHistoryViewportState,
   ])
 
   useEffect(() => {
@@ -139,7 +170,7 @@ export function useConversationHistoryViewport({
     }
 
     const handleScroll = () => {
-      updateHistoryFadeState()
+      updateHistoryViewportState()
     }
 
     historyElement.addEventListener('scroll', handleScroll, { passive: true })
@@ -148,7 +179,7 @@ export function useConversationHistoryViewport({
     const resizeObserver =
       typeof ResizeObserver !== 'undefined'
         ? new ResizeObserver(() => {
-            updateHistoryFadeState()
+            updateHistoryViewportState()
           })
         : null
 
@@ -166,14 +197,16 @@ export function useConversationHistoryViewport({
       window.removeEventListener('resize', handleScroll)
       resizeObserver?.disconnect()
     }
-  }, [threadChatId, updateHistoryFadeState])
+  }, [threadChatId, updateHistoryViewportState])
 
   return {
     handleHistoryBottomAnchorRef,
     historyFadeState,
+    isHistoryAtBottom,
     historyRef,
     isHistoryAnchored,
     scrollHistoryToLatest,
     setIsHistoryAnchored,
+    updateHistoryViewportState,
   }
 }

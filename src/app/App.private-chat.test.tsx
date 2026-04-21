@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import './testUtils/realtimeAppModuleMocks'
 import { App } from './App'
@@ -173,6 +173,64 @@ describe('App private chat flows', () => {
     })
   })
 
+  test('opens a private chat with an email-keyed browser identity', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([
+      { chatId: 'private-chat-1', username: 'private-bob', type: 'PRIVATE' },
+    ])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'private-bob', lastPingTime: null }])
+    privateApiMocks.mockFetchPrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'private-bob',
+      type: 'PRIVATE',
+      currentUserKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      counterpartKey: {
+        keyId: 'bob-browser-key',
+        publicKey: 'bob-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateApiMocks.mockFetchPrivateMessages.mockResolvedValue([])
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:private-bob:0')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:private-bob:0' }))
+
+    await waitFor(() => {
+      expect(privateServiceMocks.mockLoadPrivateChatBrowserIdentity).toHaveBeenCalledWith(
+        'alice@example.com',
+        ['user-1', 'alice'],
+      )
+      expect(privateApiMocks.mockFetchPrivateMessages).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'private-chat-1',
+        'alice-browser-key',
+      )
+      expect(screen.getByTestId('private-state')).toHaveTextContent('ready')
+    })
+  })
+
   test('shows a recovery state when the private browser key is missing', async () => {
     const user = userEvent.setup()
 
@@ -254,7 +312,8 @@ describe('App private chat flows', () => {
       ).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
         'access-token',
-        'alice',
+        'alice@example.com',
+        ['user-1', 'alice'],
       )
       expect(privateApiMocks.mockFetchPrivateMessages).toHaveBeenCalledWith(
         DEFAULT_WS_URL,
@@ -264,6 +323,181 @@ describe('App private chat flows', () => {
       )
       expect(screen.getByTestId('private-state')).toHaveTextContent('ready')
       expect(screen.getByTestId('last-message')).toHaveTextContent('Decrypted hello')
+    })
+  })
+
+  test('keeps a private chat ready after the websocket echoes a sent message', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([
+      { chatId: 'private-chat-1', username: 'private-bob', type: 'PRIVATE' },
+    ])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'private-bob', lastPingTime: null }])
+    privateApiMocks.mockFetchPrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'private-bob',
+      type: 'PRIVATE',
+      currentUserKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      counterpartKey: {
+        keyId: 'bob-browser-key',
+        publicKey: 'bob-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateApiMocks.mockFetchPrivateMessages.mockResolvedValue([])
+    privateCryptoMocks.mockDecryptPrivateMessage.mockImplementation(
+      async (_payload, identity) => (identity
+        ? {
+            status: 'decrypted',
+            text: 'Echoed private message',
+          }
+        : {
+            status: 'missing-key',
+          }),
+    )
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:private-bob:0')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:private-bob:0' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('private-state')).toHaveTextContent('ready')
+    })
+
+    await user.type(screen.getByLabelText('draft'), 'hello again')
+    await user.click(screen.getByRole('button', { name: 'send message' }))
+
+    privateServiceMocks.mockLoadPrivateChatBrowserIdentity.mockResolvedValue(null)
+
+    await act(async () => {
+      socket.emitMessage(JSON.stringify({
+        type: 'PRIVATE_MESSAGE',
+        chatId: 'private-chat-1',
+        senderUsername: 'alice',
+        chatType: 'PRIVATE',
+        encryptedMessage: {
+          protocolVersion: 'v1',
+          encryptionAlgorithm: 'AES-GCM',
+          keyWrapAlgorithm: 'RSA-OAEP',
+          ciphertext: 'ciphertext',
+          nonce: 'nonce',
+          senderKeyId: 'alice-browser-key',
+          senderMessageKeyEnvelope: 'sender-envelope',
+          recipientKeyId: 'bob-browser-key',
+          recipientMessageKeyEnvelope: 'recipient-envelope',
+        },
+        timestamp: '2026-04-22T00:44:00Z',
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('private-state')).toHaveTextContent('ready')
+      expect(screen.getByTestId('draft-disabled')).toHaveTextContent('false')
+      expect(screen.getByTestId('private-notice')).toHaveTextContent(
+        'Private messages are end-to-end encrypted and tied to this browser.',
+      )
+      expect(screen.getByTestId('last-message')).toHaveTextContent(
+        'Echoed private message',
+      )
+      expect(screen.getByTestId('last-direction')).toHaveTextContent('sent')
+    })
+  })
+
+  test('treats an email-keyed websocket echo as a sent private message for the current user', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([
+      { chatId: 'private-chat-1', username: 'private-bob', type: 'PRIVATE' },
+    ])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'private-bob', lastPingTime: null }])
+    privateApiMocks.mockFetchPrivateChat.mockResolvedValue({
+      chatId: 'private-chat-1',
+      username: 'private-bob',
+      type: 'PRIVATE',
+      currentUserKey: {
+        keyId: 'alice-browser-key',
+        publicKey: 'alice-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+      counterpartKey: {
+        keyId: 'bob-browser-key',
+        publicKey: 'bob-public-key',
+        algorithm: 'RSA-OAEP',
+        format: 'spki',
+        status: 'ACTIVE',
+        createdAt: '2026-04-20T10:00:00Z',
+        updatedAt: '2026-04-20T10:00:00Z',
+      },
+    })
+    privateApiMocks.mockFetchPrivateMessages.mockResolvedValue([])
+    privateCryptoMocks.mockDecryptPrivateMessage.mockResolvedValue({
+      status: 'decrypted',
+      text: 'Email-keyed echo',
+    })
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:private-bob:0')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:private-bob:0' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('private-state')).toHaveTextContent('ready')
+    })
+
+    await act(async () => {
+      socket.emitMessage(JSON.stringify({
+        type: 'PRIVATE_MESSAGE',
+        chatId: 'private-chat-1',
+        senderUsername: 'alice@example.com',
+        chatType: 'PRIVATE',
+        encryptedMessage: {
+          protocolVersion: 'v1',
+          encryptionAlgorithm: 'AES-GCM',
+          keyWrapAlgorithm: 'RSA-OAEP',
+          ciphertext: 'ciphertext',
+          nonce: 'nonce',
+          senderKeyId: 'alice-browser-key',
+          senderMessageKeyEnvelope: 'sender-envelope',
+          recipientKeyId: 'bob-browser-key',
+          recipientMessageKeyEnvelope: 'recipient-envelope',
+        },
+        timestamp: '2026-04-22T01:07:00Z',
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Email-keyed echo')
+      expect(screen.getByTestId('last-direction')).toHaveTextContent('sent')
+      expect(screen.getByTestId('draft-disabled')).toHaveTextContent('false')
     })
   })
 })

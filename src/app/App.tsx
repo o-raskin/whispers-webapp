@@ -1,5 +1,5 @@
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WelcomeExperience } from '../features/welcome/components/WelcomeExperience'
 import { toChatMessage, toMessageId } from '../shared/adapters/chatAdapters'
 import { logoutCurrentSession } from '../shared/api/authApi'
@@ -17,6 +17,7 @@ import { DEFAULT_WS_URL } from '../shared/config/backend'
 import { shellStagger } from '../shared/motion/presets'
 import { decryptPrivateMessage } from '../shared/private-chat/privateChatCrypto'
 import {
+  ensureRegisteredPrivateChatBrowserIdentity,
   isPrivateChatSupported,
   loadPrivateChatBrowserIdentity,
 } from '../shared/private-chat/privateChatService'
@@ -71,6 +72,8 @@ export function App() {
   const selectedChatIdRef = useRef<string | null>(null)
   const threadsRef = useRef<Record<string, ChatThread>>({})
   const readMarkersRef = useRef<Record<string, string>>({})
+  const privateChatOwnerIdRef = useRef('')
+  const privateChatOwnerFallbackIdsRef = useRef<string[]>([])
 
   const [serverUrl, setServerUrl] = useState(DEFAULT_WS_URL)
   const [status, setStatus] = useState<ConnectionStatus>('disconnected')
@@ -136,12 +139,33 @@ export function App() {
     threads,
     users,
   })
+  const privateChatOwnerId = (
+    authUser?.email.trim().toLowerCase() ||
+    authUser?.userId.trim() ||
+    currentUserId
+  )
+  const privateChatOwnerFallbackIds = useMemo(() =>
+    Array.from(
+      new Set(
+        [
+          authUser?.email.trim() ?? '',
+          authUser?.email.trim().toLowerCase() ?? '',
+          authUser?.userId.trim() ?? '',
+          authUser?.username.trim() ?? '',
+          authUser?.username.trim().toLowerCase() ?? '',
+          currentUserId.trim(),
+        ].filter((value) => Boolean(value) && value !== privateChatOwnerId),
+      ),
+    ),
+  [authUser?.email, authUser?.userId, authUser?.username, currentUserId, privateChatOwnerId])
 
   userIdRef.current = currentUserId
   chatsRef.current = chats
   selectedChatIdRef.current = selectedChatId
   threadsRef.current = threads
   readMarkersRef.current = readMarkers
+  privateChatOwnerIdRef.current = privateChatOwnerId
+  privateChatOwnerFallbackIdsRef.current = privateChatOwnerFallbackIds
 
   const appendSystemMessage = useCallback((chatId: string | null, text: string) => {
     if (!chatId) {
@@ -258,21 +282,62 @@ export function App() {
     nextUserId: string,
     localIdentity: Awaited<ReturnType<typeof loadPrivateChatBrowserIdentity>>,
   ) => {
+    const currentUserIds = new Set(
+      [
+        nextUserId,
+        privateChatOwnerIdRef.current,
+        ...privateChatOwnerFallbackIdsRef.current,
+      ]
+        .flatMap((value) => {
+          const trimmedValue = value.trim()
+
+          return trimmedValue
+            ? [trimmedValue, trimmedValue.toLowerCase()]
+            : []
+        }),
+    )
     const decryptionResult = localIdentity
       ? await decryptPrivateMessage(message.encryptedMessage, localIdentity)
       : ({ status: 'missing-key' } as const)
+    const normalizedSenderId = message.senderUserId.trim()
+    const effectiveCurrentUserId = currentUserIds.has(normalizedSenderId) ||
+      currentUserIds.has(normalizedSenderId.toLowerCase())
+      ? message.senderUserId
+      : nextUserId
 
-    return toPrivateChatMessage(message, nextUserId, decryptionResult)
+    return toPrivateChatMessage(message, effectiveCurrentUserId, decryptionResult)
   }, [])
 
-  const getPrivateChatKeyId = useCallback(async (ownerId: string) => {
+  const getPrivateChatKeyId = useCallback(async (accessToken: string) => {
     if (!privateChatFeatureSupported) {
       return null
     }
 
-    const identity = await loadPrivateChatBrowserIdentity(ownerId).catch(() => null)
-    return identity?.keyId ?? null
-  }, [privateChatFeatureSupported])
+    const ownerId = privateChatOwnerIdRef.current
+    const fallbackOwnerIds = privateChatOwnerFallbackIdsRef.current
+
+    const existingIdentity = await loadPrivateChatBrowserIdentity(
+      ownerId,
+      fallbackOwnerIds,
+    ).catch(() => null)
+
+    if (existingIdentity?.keyId) {
+      return existingIdentity.keyId
+    }
+
+    if (!accessToken || !ownerId) {
+      return null
+    }
+
+    const registration = await ensureRegisteredPrivateChatBrowserIdentity(
+      serverUrl,
+      accessToken,
+      ownerId,
+      fallbackOwnerIds,
+    ).catch(() => null)
+
+    return registration?.identity.keyId ?? null
+  }, [privateChatFeatureSupported, serverUrl])
 
   const hydrateChatSummaries = useCallback(async (
     accessToken: string,
@@ -284,7 +349,10 @@ export function App() {
     }
 
     const localPrivateIdentity = privateChatFeatureSupported
-      ? await loadPrivateChatBrowserIdentity(nextUserId).catch(() => null)
+      ? await loadPrivateChatBrowserIdentity(
+          privateChatOwnerId,
+          privateChatOwnerFallbackIds,
+        ).catch(() => null)
       : null
 
     const historyResults = await Promise.allSettled(
@@ -362,7 +430,14 @@ export function App() {
     setChats((current) =>
       hydrateFetchedChats(current, hydratedByChatId, selectedChatIdRef.current),
     )
-  }, [appendEventLog, decryptPrivateRecord, privateChatFeatureSupported, serverUrl])
+  }, [
+    appendEventLog,
+    decryptPrivateRecord,
+    privateChatFeatureSupported,
+    privateChatOwnerFallbackIds,
+    privateChatOwnerId,
+    serverUrl,
+  ])
 
   const refreshUsers = useCallback(async (accessToken: string) => {
     const payload = await fetchUsers(serverUrl, accessToken)
@@ -437,7 +512,7 @@ export function App() {
   }, [appendEventLog, serverUrl])
 
   const refreshChats = useCallback(async (accessToken: string, nextUserId: string) => {
-    const keyId = await getPrivateChatKeyId(nextUserId)
+    const keyId = await getPrivateChatKeyId(accessToken)
     const payload = await fetchChats(serverUrl, accessToken, keyId)
     const enrichedPayload = await enrichOneToOneChats(accessToken, payload)
 
@@ -466,6 +541,8 @@ export function App() {
     authStatus,
     chatsRef,
     currentUserId,
+    privateChatOwnerFallbackIds,
+    privateChatOwnerId,
     decryptPrivateRecord,
     handleUnauthorizedAccess,
     markChatAsRead,

@@ -20,7 +20,7 @@ const DEFAULT_AUTH_USER = {
 }
 
 const DEFAULT_BROWSER_IDENTITY = {
-  ownerId: 'alice',
+  ownerId: 'alice@example.com',
   keyId: 'alice-browser-key',
   publicKey: {} as CryptoKey,
   privateKey: {} as CryptoKey,

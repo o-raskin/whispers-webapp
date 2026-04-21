@@ -230,56 +230,73 @@ vi.mock('../../features/conversation/components/ConversationPanel', () => ({
       username: string
     } | null
     remoteCallStream: MediaStream | null
-  }) => (
-    <div data-testid="conversation">
-      <div data-testid="participant">{thread?.participant ?? 'none'}</div>
-      <div data-testid="participant-profile-name">
-        {participantProfile
-          ? [participantProfile.firstName, participantProfile.lastName]
-              .filter(Boolean)
-              .join(' ') || participantProfile.username
-          : 'none'}
+  }) => {
+    const privateChatAccessState = privateChatState?.accessState ?? 'idle'
+    const isPrivateComposerLocked =
+      chatType === 'PRIVATE' &&
+      (
+        privateChatAccessState === 'missing-key' ||
+        privateChatAccessState === 'setting-up' ||
+        privateChatAccessState === 'error'
+      )
+    const isDraftDisabled =
+      !thread || connectionStatus !== 'connected' || isPrivateComposerLocked
+
+    return (
+      <div data-testid="conversation">
+        <div data-testid="participant">{thread?.participant ?? 'none'}</div>
+        <div data-testid="participant-profile-name">
+          {participantProfile
+            ? [participantProfile.firstName, participantProfile.lastName]
+                .filter(Boolean)
+                .join(' ') || participantProfile.username
+            : 'none'}
+        </div>
+        <div data-testid="message-count">{thread?.messages.length ?? 0}</div>
+        <div data-testid="last-message">
+          {thread?.messages.at(-1)?.text ?? 'no-messages'}
+        </div>
+        <div data-testid="last-direction">
+          {thread?.messages.at(-1)?.direction ?? 'none'}
+        </div>
+        <div data-testid="draft-disabled">{String(isDraftDisabled)}</div>
+        <div data-testid="typing">{remoteTypingLabel ?? 'none'}</div>
+        <div data-testid="call-phase">{callPhase}</div>
+        <div data-testid="local-stream">{localCallStream ? 'yes' : 'no'}</div>
+        <div data-testid="remote-stream">{remoteCallStream ? 'yes' : 'no'}</div>
+        <div data-testid="connection-status">{connectionStatus}</div>
+        <div data-testid="chat-type">{chatType ?? 'none'}</div>
+        <div data-testid="private-state">{privateChatState?.accessState ?? 'none'}</div>
+        <div data-testid="private-notice">{privateChatState?.notice ?? 'none'}</div>
+        <input
+          aria-label="draft"
+          value={messageDraft}
+          onChange={(event) => onMessageDraftChange(event.target.value)}
+        />
+        <button type="button" onClick={onStartCall}>
+          start audio call
+        </button>
+        <button type="button" onClick={onAcceptCall}>
+          accept audio call
+        </button>
+        <button type="button" onClick={() => onDeclineCall()}>
+          decline audio call
+        </button>
+        <button type="button" onClick={onEndCall}>
+          end audio call
+        </button>
+        <button type="button" onClick={onSendMessage}>
+          send message
+        </button>
+        <button type="button" onClick={onSetUpPrivateChatBrowser}>
+          set up private chat
+        </button>
+        <button type="button" onClick={onBackToInbox}>
+          back to inbox
+        </button>
       </div>
-      <div data-testid="message-count">{thread?.messages.length ?? 0}</div>
-      <div data-testid="last-message">
-        {thread?.messages.at(-1)?.text ?? 'no-messages'}
-      </div>
-      <div data-testid="typing">{remoteTypingLabel ?? 'none'}</div>
-      <div data-testid="call-phase">{callPhase}</div>
-      <div data-testid="local-stream">{localCallStream ? 'yes' : 'no'}</div>
-      <div data-testid="remote-stream">{remoteCallStream ? 'yes' : 'no'}</div>
-      <div data-testid="connection-status">{connectionStatus}</div>
-      <div data-testid="chat-type">{chatType ?? 'none'}</div>
-      <div data-testid="private-state">{privateChatState?.accessState ?? 'none'}</div>
-      <div data-testid="private-notice">{privateChatState?.notice ?? 'none'}</div>
-      <input
-        aria-label="draft"
-        value={messageDraft}
-        onChange={(event) => onMessageDraftChange(event.target.value)}
-      />
-      <button type="button" onClick={onStartCall}>
-        start audio call
-      </button>
-      <button type="button" onClick={onAcceptCall}>
-        accept audio call
-      </button>
-      <button type="button" onClick={() => onDeclineCall()}>
-        decline audio call
-      </button>
-      <button type="button" onClick={onEndCall}>
-        end audio call
-      </button>
-      <button type="button" onClick={onSendMessage}>
-        send message
-      </button>
-      <button type="button" onClick={onSetUpPrivateChatBrowser}>
-        set up private chat
-      </button>
-      <button type="button" onClick={onBackToInbox}>
-        back to inbox
-      </button>
-    </div>
-  ),
+    )
+  },
 }))
 
 vi.mock('../../features/event-log/components/EventLogPanel', () => ({
