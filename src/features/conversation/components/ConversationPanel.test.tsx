@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ConversationPanel } from './ConversationPanel'
 import type { CallPhase, ChatThread, UserPresence } from '../../../shared/types/chat'
@@ -10,6 +10,7 @@ describe('ConversationPanel', () => {
     messages: [
       {
         id: 'one',
+        messageId: '101',
         chatId: 'chat-1',
         senderUserId: 'bob',
         direction: 'received',
@@ -18,6 +19,7 @@ describe('ConversationPanel', () => {
       },
       {
         id: 'two',
+        messageId: '202',
         chatId: 'chat-1',
         senderUserId: 'alice',
         direction: 'sent',
@@ -43,6 +45,7 @@ describe('ConversationPanel', () => {
     onBackToInbox = vi.fn(),
     onDeclineCall = vi.fn(),
     onEndCall = vi.fn(),
+    onDeleteMessage = vi.fn(),
     onMessageDraftChange = vi.fn(),
     onSendMessage = vi.fn(),
     onSetUpPrivateChatBrowser = vi.fn(),
@@ -61,6 +64,7 @@ describe('ConversationPanel', () => {
     onBackToInbox?: () => void
     onDeclineCall?: () => void
     onEndCall?: () => void
+    onDeleteMessage?: (messageId: string) => void
     onMessageDraftChange?: (value: string) => void
     onSendMessage?: () => void
     onSetUpPrivateChatBrowser?: () => void
@@ -104,6 +108,7 @@ describe('ConversationPanel', () => {
         onAcceptCall={onAcceptCall}
         onDeclineCall={onDeclineCall}
         onEndCall={onEndCall}
+        onDeleteMessage={onDeleteMessage}
         onSendMessage={onSendMessage}
         onSetUpPrivateChatBrowser={onSetUpPrivateChatBrowser}
         onStartCall={onStartCall}
@@ -225,6 +230,7 @@ describe('ConversationPanel', () => {
         onAcceptCall={vi.fn()}
         onDeclineCall={vi.fn()}
         onEndCall={onEndCall}
+        onDeleteMessage={vi.fn()}
         onSendMessage={vi.fn()}
         onSetUpPrivateChatBrowser={vi.fn()}
         onStartCall={vi.fn()}
@@ -306,6 +312,69 @@ describe('ConversationPanel', () => {
 
     expect(onMessageDraftChange).toHaveBeenCalledWith('Hi😀 there')
     expect(onSendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  test('opens a delete action after holding a sent message', () => {
+    vi.useFakeTimers()
+    const onDeleteMessage = vi.fn()
+
+    try {
+      renderConversationPanel({
+        onDeleteMessage,
+      })
+
+      const messageBubble = screen.getByText('Hi Bob').closest('article')
+
+      expect(messageBubble).not.toBeNull()
+
+      fireEvent.pointerDown(messageBubble!, {
+        button: 0,
+        clientX: 120,
+        clientY: 220,
+      })
+
+      act(() => {
+        vi.advanceTimersByTime(700)
+      })
+
+      expect(screen.getByRole('menu', { name: 'Message actions' })).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+
+      expect(onDeleteMessage).toHaveBeenCalledWith('202')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('does not offer delete actions for other participant messages', () => {
+    vi.useFakeTimers()
+    const onDeleteMessage = vi.fn()
+
+    try {
+      renderConversationPanel({
+        onDeleteMessage,
+      })
+
+      const messageBubble = screen.getByText('Hello Alice').closest('article')
+
+      expect(messageBubble).not.toBeNull()
+
+      fireEvent.pointerDown(messageBubble!, {
+        button: 0,
+        clientX: 80,
+        clientY: 180,
+      })
+
+      act(() => {
+        vi.advanceTimersByTime(700)
+      })
+
+      expect(screen.queryByRole('menu', { name: 'Message actions' })).not.toBeInTheDocument()
+      expect(onDeleteMessage).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('opens the emoji picker as a centered mobile dialog', async () => {

@@ -6,6 +6,7 @@ import { logoutCurrentSession } from '../shared/api/authApi'
 import { ApiError } from '../shared/api/apiClient'
 import {
   createChat,
+  deleteMessage,
   fetchChats,
   fetchMessages,
   fetchUserProfile,
@@ -45,8 +46,10 @@ import {
   filterVisibleMessages,
   hydrateFetchedChats,
   mergeFetchedChats,
+  removeMessageFromThread,
   setChatPreview,
   setChatTimestamp,
+  syncChatAfterMessageRemoval,
   upsertThread,
 } from './utils/chatRuntime'
 import {
@@ -652,6 +655,30 @@ export function App() {
     upsertMessages,
   ])
 
+  const handleMessageDeleteEvent = useCallback((event: { chatId: string; messageId: string }) => {
+    const existingThread = threadsRef.current[event.chatId]
+
+    if (!existingThread) {
+      return
+    }
+
+    const remainingMessages = existingThread.messages.filter(
+      (message) => message.messageId !== event.messageId,
+    )
+
+    if (remainingMessages.length === existingThread.messages.length) {
+      return
+    }
+
+    setThreads((current) => removeMessageFromThread(current, event.chatId, event.messageId))
+    setChats((current) => syncChatAfterMessageRemoval(
+      current,
+      event.chatId,
+      remainingMessages,
+    ))
+    appendEventLog(`Message deleted: ${event.messageId}`)
+  }, [appendEventLog])
+
   const {
     acceptCall,
     cleanupCallSession,
@@ -685,6 +712,7 @@ export function App() {
     handleCallSignalMessage,
     handleIncomingDirectSocketMessage,
     handleIncomingPrivateSocketMessage,
+    handleMessageDeleteEvent,
     messageDraft,
     onSocketClose: () => {
       cleanupCallSession('socket-closed')
@@ -965,6 +993,33 @@ export function App() {
     stopLocalTypingRef,
   ])
 
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    if (!authSession) {
+      appendEventLog('Sign in first to delete messages.')
+      return
+    }
+
+    try {
+      await deleteMessage(serverUrl, authSession.accessToken, messageId)
+      appendEventLog(`Delete requested for message ${messageId}.`)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorizedAccess(error.message)
+        return
+      }
+
+      const message = error instanceof Error ? error.message : 'Delete message failed.'
+      appendEventLog(`Delete message failed: ${message}`)
+      appendSystemMessage(selectedChatIdRef.current, `Delete message failed: ${message}`)
+    }
+  }, [
+    appendEventLog,
+    appendSystemMessage,
+    authSession,
+    handleUnauthorizedAccess,
+    serverUrl,
+  ])
+
   return (
     <MotionConfig reducedMotion="user">
       <motion.div
@@ -1060,6 +1115,9 @@ export function App() {
               onDeclineCall: rejectIncomingCall,
               onEndCall: handleEndSelectedCall,
               onMessageDraftChange: setMessageDraft,
+              onDeleteMessage: (messageId: string) => {
+                void handleDeleteMessage(messageId)
+              },
               onSendMessage: handleSendMessage,
               onSetUpPrivateChatBrowser: () => {
                 void handleSetupPrivateChatBrowser()

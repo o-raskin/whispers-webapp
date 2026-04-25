@@ -1,4 +1,5 @@
 import type {
+  MessageDeleteEvent,
   MessageRecord,
   PrivateMessageRecord,
   PresenceEvent,
@@ -7,6 +8,15 @@ import type {
 
 export type WebSocketMessageRecordPayload = Omit<MessageRecord, 'chatId'> & {
   chatId: string | number
+  messageId?: string | number
+}
+
+export type WebSocketMessageDeletePayload = Omit<
+  MessageDeleteEvent,
+  'chatId' | 'messageId'
+> & {
+  chatId: string | number
+  messageId: string | number
 }
 
 export type WebSocketPrivateMessagePayload = Omit<
@@ -40,6 +50,26 @@ export function isTypingEvent(payload: unknown): payload is TypingEvent {
   )
 }
 
+export function isMessageDeleteEvent(
+  payload: unknown,
+): payload is WebSocketMessageDeletePayload {
+  if (typeof payload !== 'object' || payload === null) {
+    return false
+  }
+
+  const record = payload as {
+    chatId?: unknown
+    messageId?: unknown
+    type?: unknown
+  }
+
+  return (
+    record.type === 'MESSAGE_DELETE' &&
+    (typeof record.chatId === 'string' || typeof record.chatId === 'number') &&
+    (typeof record.messageId === 'string' || typeof record.messageId === 'number')
+  )
+}
+
 export function hasTypedEventShape(
   payload: unknown,
 ): payload is Record<'type', unknown> {
@@ -53,6 +83,7 @@ export function isMessageRecord(payload: unknown): payload is WebSocketMessageRe
 
   const record = payload as {
     chatId?: unknown
+    messageId?: unknown
     senderUserId?: unknown
     text?: unknown
     timestamp?: unknown
@@ -60,6 +91,11 @@ export function isMessageRecord(payload: unknown): payload is WebSocketMessageRe
 
   return (
     (typeof record.chatId === 'string' || typeof record.chatId === 'number') &&
+    (
+      typeof record.messageId === 'undefined' ||
+      typeof record.messageId === 'string' ||
+      typeof record.messageId === 'number'
+    ) &&
     typeof record.senderUserId === 'string' &&
     typeof record.text === 'string' &&
     typeof record.timestamp === 'string'

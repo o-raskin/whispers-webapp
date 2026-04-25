@@ -8,6 +8,7 @@ import {
 } from './utils/readMarkers'
 import {
   hasTypedEventShape,
+  isMessageDeleteEvent,
   isMessageRecord,
   isPresenceEvent,
   isTypingEvent,
@@ -37,6 +38,11 @@ describe('App helpers', () => {
       true,
     )
     expect(isTypingEvent({ type: 'TYPING_END', chatId: 'chat-1' })).toBe(true)
+    expect(isMessageDeleteEvent({
+      type: 'MESSAGE_DELETE',
+      chatId: 1,
+      messageId: 987,
+    })).toBe(true)
     expect(hasTypedEventShape({ type: 'MESSAGE' })).toBe(true)
     expect(
       isMessageRecord({

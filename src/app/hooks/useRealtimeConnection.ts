@@ -28,6 +28,7 @@ import { normalizeSocketPrivateMessage } from '../utils/privateChatRuntime'
 import {
   hasTypedEventShape,
   isMessageRecord,
+  isMessageDeleteEvent,
   isPrivateMessageRecord,
   isPresenceEvent,
   isTypingEvent,
@@ -61,6 +62,7 @@ interface UseRealtimeConnectionArgs {
     message: PrivateMessageRecord,
     accessToken: string,
   ) => Promise<void> | void
+  handleMessageDeleteEvent: (event: { chatId: string; messageId: string }) => void
   messageDraft: string
   onSocketClose: () => void
   onSocketOpen: (accessToken: string, username: string) => void
@@ -77,9 +79,14 @@ interface UseRealtimeConnectionArgs {
 }
 
 function normalizeSocketMessage(payload: WebSocketMessageRecordPayload): MessageRecord {
+  const { messageId, ...record } = payload
+
   return {
-    ...payload,
-    chatId: String(payload.chatId),
+    ...record,
+    chatId: String(record.chatId),
+    ...(typeof messageId !== 'undefined'
+      ? { messageId: String(messageId) }
+      : {}),
   }
 }
 
@@ -92,6 +99,7 @@ export function useRealtimeConnection({
   handleCallSignalMessage,
   handleIncomingDirectSocketMessage,
   handleIncomingPrivateSocketMessage,
+  handleMessageDeleteEvent,
   messageDraft,
   onSocketClose,
   onSocketOpen,
@@ -224,6 +232,14 @@ export function useRealtimeConnection({
 
       appendEventLog(`Received: ${raw}`)
 
+      if (isMessageDeleteEvent(payload)) {
+        handleMessageDeleteEvent({
+          chatId: String(payload.chatId),
+          messageId: String(payload.messageId),
+        })
+        return
+      }
+
       if (isMessageRecord(payload)) {
         const normalizedPayload = normalizeSocketMessage(payload)
 
@@ -310,6 +326,7 @@ export function useRealtimeConnection({
     handleCallSignalMessage,
     handleIncomingDirectSocketMessage,
     handleIncomingPrivateSocketMessage,
+    handleMessageDeleteEvent,
     onSocketClose,
     onSocketOpen,
     selectedChatIdRef,

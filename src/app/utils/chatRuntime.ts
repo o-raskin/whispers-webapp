@@ -84,6 +84,52 @@ export function upsertThread(
   }
 }
 
+export function removeMessageFromThread(
+  currentThreads: Record<string, ChatThread>,
+  chatId: string,
+  messageId: string,
+) {
+  const existingThread = currentThreads[chatId]
+
+  if (!existingThread) {
+    return currentThreads
+  }
+
+  const remainingMessages = existingThread.messages.filter(
+    (message) => message.messageId !== messageId,
+  )
+
+  if (remainingMessages.length === existingThread.messages.length) {
+    return currentThreads
+  }
+
+  return {
+    ...currentThreads,
+    [chatId]: {
+      ...existingThread,
+      messages: remainingMessages,
+    },
+  }
+}
+
+export function syncChatAfterMessageRemoval(
+  currentChats: ChatSummary[],
+  chatId: string,
+  remainingMessages: ChatMessage[],
+) {
+  const latestMessage = remainingMessages.at(-1)
+
+  return currentChats.map((chat) =>
+    chat.chatId === chatId
+      ? {
+          ...chat,
+          preview: latestMessage?.text ?? '',
+          lastMessageTimestamp: latestMessage?.timestamp,
+        }
+      : chat,
+  )
+}
+
 export function mergeFetchedChats(
   currentChats: ChatSummary[],
   incomingChats: ChatSummary[],

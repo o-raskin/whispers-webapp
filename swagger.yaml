@@ -54,6 +54,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /auth/refresh:
     post:
@@ -68,6 +70,8 @@ paths:
                 $ref: '#/components/schemas/LoginResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /auth/me:
     get:
@@ -81,6 +85,8 @@ paths:
                 $ref: '#/components/schemas/AuthUserProfile'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /auth/logout:
     post:
@@ -104,6 +110,8 @@ paths:
                     example: http://localhost:5173/
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /ws/user:
     get:
@@ -127,13 +135,16 @@ paths:
 
         Server text frames may send:
         - `MessageRecord` as JSON
+        - `MessageDeleteEvent` as JSON after a successful HTTP message deletion
         - `PrivateMessageView` as JSON
         - `PresenceEvent` as JSON
         - `TypingEvent` as JSON
-        - plain text errors starting with `ERROR:`
+        - plain text errors starting with `ERROR:`; unexpected internal failures are normalized to `ERROR: Internal server error`
       responses:
         '101':
           description: Switching Protocols, upgraded to WebSocket
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           description: Missing or invalid bearer token
           content:
@@ -142,6 +153,8 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /chats:
     get:
@@ -167,6 +180,8 @@ paths:
                   $ref: '#/components/schemas/ChatSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     post:
       summary: Create a DIRECT chat with another user
       parameters:
@@ -189,6 +204,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /public-keys:
     post:
@@ -213,10 +230,15 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /private-chats:
     post:
       summary: Create a PRIVATE browser-tied chat with another user
+      description: |
+        Creates a new `PRIVATE` chat for the authenticated user's browser `keyId` and the counterpart browser key.
+        If a `PRIVATE` chat already exists for the same user pair and the same browser-key pair, that chat is returned.
       parameters:
         - name: targetUserId
           in: query
@@ -232,7 +254,7 @@ paths:
           example: alice-browser-key
       responses:
         '200':
-          description: PRIVATE chat created or returned if it already exists
+          description: PRIVATE chat created or returned if the same browser-key-bound chat already exists
           content:
             application/json:
               schema:
@@ -245,6 +267,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /private-chats/{chatId}:
     get:
@@ -278,6 +302,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /private-chats/{chatId}/messages:
     get:
@@ -311,6 +337,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /messages:
     get:
@@ -336,6 +364,32 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /messages/{messageId}:
+    delete:
+      summary: Delete a plaintext DIRECT chat message owned by the authenticated user
+      description: Successful deletion also emits a `MessageDeleteEvent` WebSocket frame to both DIRECT chat participants.
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 987
+      responses:
+        '200':
+          description: Message deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /users:
     get:
@@ -351,6 +405,8 @@ paths:
                   $ref: '#/components/schemas/User'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /users/{userId}:
     get:
@@ -373,6 +429,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
   securitySchemes:
@@ -408,6 +466,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     Conflict:
       description: Conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Unexpected server-side failure
       content:
         application/json:
           schema:
@@ -666,11 +730,16 @@ components:
     MessageRecord:
       type: object
       required:
+        - messageId
         - chatId
         - senderUserId
         - text
         - timestamp
       properties:
+        messageId:
+          type: integer
+          format: int64
+          example: 987
         chatId:
           type: integer
           format: int64
@@ -685,6 +754,25 @@ components:
           type: string
           description: Server-side message timestamp
           example: '2026-04-10T12:34:56Z'
+
+    MessageDeleteEvent:
+      type: object
+      required:
+        - type
+        - chatId
+        - messageId
+      properties:
+        type:
+          type: string
+          example: MESSAGE_DELETE
+        chatId:
+          type: integer
+          format: int64
+          example: 123
+        messageId:
+          type: integer
+          format: int64
+          example: 987
 
     PrivateMessageView:
       type: object

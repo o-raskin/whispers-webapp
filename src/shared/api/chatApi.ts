@@ -31,6 +31,7 @@ interface UserProfileResponse {
 }
 
 interface MessageRecordResponse {
+  messageId?: number
   chatId: number
   senderUserId: string
   text: string
@@ -60,9 +61,12 @@ function normalizeUserProfile(profile: UserProfileResponse): UserProfile {
 }
 
 function normalizeMessageRecord(message: MessageRecordResponse): MessageRecord {
+  const { messageId, ...record } = message
+
   return {
-    ...message,
-    chatId: String(message.chatId),
+    ...record,
+    ...(typeof messageId === 'number' ? { messageId: String(messageId) } : {}),
+    chatId: String(record.chatId),
   }
 }
 
@@ -148,6 +152,26 @@ export async function fetchMessages(
 
   const payload = await parseJsonResponse<MessageRecordResponse[]>(response, 'Cannot load history.')
   return payload.map(normalizeMessageRecord)
+}
+
+export async function deleteMessage(
+  serverUrl: string,
+  accessToken: string,
+  messageId: string,
+): Promise<void> {
+  const response = await fetch(
+    buildUrl(serverUrl, `/messages/${encodeURIComponent(messageId)}`),
+    {
+      method: 'DELETE',
+      headers: buildJsonHeaders(accessToken),
+    },
+  )
+
+  if (response.ok) {
+    return
+  }
+
+  await parseJsonResponse<never>(response, 'Delete message failed.')
 }
 
 export async function fetchUsers(serverUrl: string, accessToken: string): Promise<UserPresence[]> {

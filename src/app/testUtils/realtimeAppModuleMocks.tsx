@@ -4,6 +4,7 @@ const apiMocks = vi.hoisted(() => ({
   ]),
   mockBuildWebSocketUrl: vi.fn((serverUrl: string) => serverUrl),
   mockCreateChat: vi.fn(),
+  mockDeleteMessage: vi.fn(),
   mockFetchChats: vi.fn(),
   mockFetchMessages: vi.fn(),
   mockFetchUserProfile: vi.fn(
@@ -54,6 +55,7 @@ vi.mock('../../shared/api/chatApi', () => ({
   buildWebSocketProtocols: apiMocks.mockBuildWebSocketProtocols,
   buildWebSocketUrl: apiMocks.mockBuildWebSocketUrl,
   createChat: apiMocks.mockCreateChat,
+  deleteMessage: apiMocks.mockDeleteMessage,
   fetchChats: apiMocks.mockFetchChats,
   fetchMessages: apiMocks.mockFetchMessages,
   fetchUserProfile: apiMocks.mockFetchUserProfile,
@@ -214,7 +216,10 @@ vi.mock('../../features/conversation/components/ConversationPanel', () => ({
     localCallStream: MediaStream | null
     onSetUpPrivateChatBrowser: () => void
     privateChatState: { accessState: string; notice: string | null } | null
-    thread: { participant: string; messages: Array<{ text: string }> } | null
+    thread: {
+      participant: string
+      messages: Array<{ direction: string; text: string }>
+    } | null
     remoteTypingLabel: string | null
     onAcceptCall: () => void
     onDeclineCall: () => void

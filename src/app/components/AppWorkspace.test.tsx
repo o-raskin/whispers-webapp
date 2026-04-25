@@ -56,6 +56,7 @@ const baseConversationProps: ConversationPanelProps = {
   onAcceptCall: vi.fn(),
   onBackToInbox: vi.fn(),
   onDeclineCall: vi.fn(),
+  onDeleteMessage: vi.fn(),
   onEndCall: vi.fn(),
   onMessageDraftChange: vi.fn(),
   onSendMessage: vi.fn(),

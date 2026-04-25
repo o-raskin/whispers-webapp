@@ -15,6 +15,10 @@ describe('chatAdapters', () => {
     )
   })
 
+  test('prefers the backend message id when it is available', () => {
+    expect(toMessageId({ ...message, messageId: '987' })).toBe('message-987')
+  })
+
   test('maps a current-user message to a sent chat message', () => {
     expect(toChatMessage(message, 'alice')).toEqual({
       id: 'chat-1-alice-2026-04-12T10:30:00Z-Hello there',

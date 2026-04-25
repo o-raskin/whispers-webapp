@@ -119,6 +119,7 @@ export function teardownRealtimeAppTestEnvironment() {
   apiMocks.mockBuildWebSocketProtocols.mockClear()
   apiMocks.mockBuildWebSocketUrl.mockClear()
   apiMocks.mockCreateChat.mockReset()
+  apiMocks.mockDeleteMessage.mockReset()
   apiMocks.mockFetchChats.mockReset()
   apiMocks.mockFetchMessages.mockReset()
   apiMocks.mockFetchUserProfile.mockClear()

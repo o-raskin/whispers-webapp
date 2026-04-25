@@ -14,6 +14,7 @@ export interface UserPresence {
 
 export interface ChatMessage {
   id: string
+  messageId?: string
   chatId: string
   senderUserId: string
   direction: 'sent' | 'received' | 'system'
@@ -27,6 +28,7 @@ export interface ChatMessage {
 
 export interface MessageRecord {
   type?: 'MESSAGE' | 'message'
+  messageId?: string
   chatId: string
   senderUserId: string
   text: string
@@ -202,11 +204,18 @@ export interface TypingEvent {
   username?: string
 }
 
+export interface MessageDeleteEvent {
+  type: 'MESSAGE_DELETE'
+  chatId: string
+  messageId: string
+}
+
 export type WebSocketIncomingEvent =
   | MessageRecord
   | PrivateMessageRecord
   | PresenceEvent
   | TypingEvent
+  | MessageDeleteEvent
 
 export interface ErrorResponse {
   error: string

@@ -8,8 +8,10 @@ import {
   hydrateFetchedChats,
   mergeFetchedChats,
   mergeThreadMessages,
+  removeMessageFromThread,
   setChatPreview,
   setChatTimestamp,
+  syncChatAfterMessageRemoval,
   upsertThread,
 } from './chatRuntime'
 
@@ -21,6 +23,7 @@ function createChatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     direction: overrides.direction ?? 'received',
     text: overrides.text ?? 'Hello',
     timestamp: overrides.timestamp ?? '2026-04-12T10:00:00Z',
+    ...(overrides.messageId ? { messageId: overrides.messageId } : {}),
     ...(overrides.encryption ? { encryption: overrides.encryption } : {}),
   }
 }
@@ -127,6 +130,60 @@ describe('chatRuntime', () => {
     })
 
     expect(mergeThreadMessages([placeholder], [decrypted])).toEqual([decrypted])
+  })
+
+  test('removes deleted messages from a thread and refreshes chat preview from remaining messages', () => {
+    const currentThreads = {
+      'chat-1': {
+        chatId: 'chat-1',
+        participant: 'bob',
+        messages: [
+          createChatMessage({
+            id: 'message-987',
+            messageId: '987',
+            text: 'Older note',
+            timestamp: '2026-04-12T10:00:00Z',
+          }),
+          createChatMessage({
+            id: 'message-988',
+            messageId: '988',
+            text: 'Delete me',
+            timestamp: '2026-04-12T10:05:00Z',
+          }),
+        ],
+      },
+    }
+    const nextThreads = removeMessageFromThread(currentThreads, 'chat-1', '988')
+
+    expect(nextThreads['chat-1'].messages).toEqual([
+      createChatMessage({
+        id: 'message-987',
+        messageId: '987',
+        text: 'Older note',
+        timestamp: '2026-04-12T10:00:00Z',
+      }),
+    ])
+    expect(
+      syncChatAfterMessageRemoval(
+        [
+          {
+            chatId: 'chat-1',
+            username: 'bob',
+            preview: 'Delete me',
+            lastMessageTimestamp: '2026-04-12T10:05:00Z',
+          },
+        ],
+        'chat-1',
+        nextThreads['chat-1'].messages,
+      ),
+    ).toEqual([
+      {
+        chatId: 'chat-1',
+        username: 'bob',
+        preview: 'Older note',
+        lastMessageTimestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
   })
 
   test('preserves visible chat previews when fetched chat summaries contain hidden call signals', () => {

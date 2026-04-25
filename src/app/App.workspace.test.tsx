@@ -178,6 +178,7 @@ describe('App workspace flows', () => {
         return [
           {
             chatId: 'chat-1',
+            messageId: '100',
             senderUserId: 'bob',
             text: 'Initial hello',
             timestamp: '2026-04-12T10:00:00Z',
@@ -235,6 +236,7 @@ describe('App workspace flows', () => {
         JSON.stringify({
           type: 'MESSAGE',
           chatId: 'chat-1',
+          messageId: 101,
           senderUserId: 'bob',
           text: 'Fresh update',
           timestamp: '2026-04-12T10:06:00Z',
@@ -247,6 +249,21 @@ describe('App workspace flows', () => {
       expect(screen.getByTestId('last-message')).toHaveTextContent('Fresh update')
       expect(screen.getByTestId('typing')).toHaveTextContent('none')
       expect(screen.getByText('chat:bob:0')).toBeInTheDocument()
+    })
+
+    await act(async () => {
+      socket.emitMessage(
+        JSON.stringify({
+          type: 'MESSAGE_DELETE',
+          chatId: 'chat-1',
+          messageId: 101,
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('message-count')).toHaveTextContent('1')
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Initial hello')
     })
 
     await user.type(screen.getByLabelText('new chat user'), 'carol')

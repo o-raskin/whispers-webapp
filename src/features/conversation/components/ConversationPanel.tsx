@@ -56,6 +56,7 @@ export interface ConversationPanelProps {
   onAcceptCall: () => void
   onDeclineCall: () => void
   onEndCall: () => void
+  onDeleteMessage: (messageId: string) => void
   onSendMessage: () => void
   onSetUpPrivateChatBrowser: () => void
   onStartCall: () => void
@@ -83,6 +84,7 @@ export function ConversationPanel({
   onAcceptCall,
   onDeclineCall,
   onEndCall,
+  onDeleteMessage,
   onSendMessage,
   onSetUpPrivateChatBrowser,
   onStartCall,
@@ -231,6 +233,7 @@ export function ConversationPanel({
           updateHistoryViewportState()
         }}
         onScrollToLatest={scrollHistoryToLatest}
+        onDeleteMessage={chatType === 'PRIVATE' ? undefined : onDeleteMessage}
         participantProfile={participantProfile}
         showHistoryLoadingState={showHistoryLoadingState}
         thread={thread}
