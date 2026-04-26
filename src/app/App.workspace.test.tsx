@@ -254,6 +254,26 @@ describe('App workspace flows', () => {
     await act(async () => {
       socket.emitMessage(
         JSON.stringify({
+          type: 'MESSAGE_EDIT',
+          message: {
+            chatId: 'chat-1',
+            messageId: 101,
+            senderUserId: 'bob',
+            text: 'Fresh update edited',
+            timestamp: '2026-04-12T10:06:00Z',
+          },
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('message-count')).toHaveTextContent('2')
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Fresh update edited')
+    })
+
+    await act(async () => {
+      socket.emitMessage(
+        JSON.stringify({
           type: 'MESSAGE_DELETE',
           chatId: 'chat-1',
           messageId: 101,
@@ -285,6 +305,127 @@ describe('App workspace flows', () => {
     await waitFor(() => {
       expect(screen.getByTestId('connection-status')).toHaveTextContent('disconnected')
       expect(screen.getByTestId('selected-chat')).toHaveTextContent('none')
+    })
+  })
+
+  test('requests chat deletion and removes a deleted chat from websocket events', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([
+      { chatId: 'chat-1', username: 'bob' },
+      { chatId: 'chat-2', username: 'carol' },
+    ])
+    apiMocks.mockFetchUsers.mockResolvedValue([
+      { username: 'bob', lastPingTime: null },
+      { username: 'carol', lastPingTime: null },
+    ])
+    apiMocks.mockFetchMessages.mockImplementation(
+      async (_serverUrl, _userId, chatId: string) => [
+        {
+          chatId,
+          senderUserId: chatId === 'chat-1' ? 'bob' : 'carol',
+          text: chatId === 'chat-1' ? 'Bob hello' : 'Carol hello',
+          timestamp: '2026-04-12T10:00:00Z',
+        },
+      ],
+    )
+    apiMocks.mockDeleteChat.mockResolvedValue(undefined)
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:1')).toBeInTheDocument()
+      expect(screen.getByText('chat:carol:1')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:1' }))
+    await user.click(screen.getByRole('button', { name: 'delete-chat:bob' }))
+
+    await waitFor(() => {
+      expect(apiMocks.mockDeleteChat).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'chat-1',
+      )
+    })
+
+    await act(async () => {
+      socket.emitMessage(
+        JSON.stringify({
+          type: 'CHAT_DELETE',
+          chatId: 'chat-1',
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByText('chat:bob:1')).not.toBeInTheDocument()
+      expect(screen.queryByText('delete-chat:bob')).not.toBeInTheDocument()
+      expect(screen.getByText('chat:carol:1')).toBeInTheDocument()
+      expect(screen.getByTestId('selected-chat')).toHaveTextContent('none')
+      expect(screen.getByTestId('participant')).toHaveTextContent('none')
+    })
+  })
+
+  test('edits a selected own message while preserving the previous composer draft', async () => {
+    const user = userEvent.setup()
+
+    apiMocks.mockFetchChats.mockResolvedValue([{ chatId: 'chat-1', username: 'bob' }])
+    apiMocks.mockFetchUsers.mockResolvedValue([{ username: 'bob', lastPingTime: null }])
+    apiMocks.mockFetchMessages.mockResolvedValue([
+      {
+        chatId: 'chat-1',
+        messageId: 'own-1',
+        senderUserId: 'alice',
+        text: 'Own hello',
+        timestamp: '2026-04-12T10:00:00Z',
+      },
+    ])
+    apiMocks.mockEditMessage.mockResolvedValue({
+      chatId: 'chat-1',
+      messageId: 'own-1',
+      senderUserId: 'alice',
+      text: 'Own hello edited',
+      timestamp: '2026-04-12T10:00:00Z',
+    })
+
+    render(<App />)
+
+    const socket = await connectAuthenticatedWorkspace()
+    await emitSocketOpen(socket)
+
+    await waitFor(() => {
+      expect(screen.getByText('chat:bob:0')).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'chat:bob:0' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('last-message')).toHaveTextContent('Own hello')
+    })
+
+    await user.type(screen.getByLabelText('draft'), 'new draft')
+    await user.click(screen.getByRole('button', { name: 'edit own message' }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('draft')).toHaveValue('Own hello')
+    })
+
+    await user.clear(screen.getByLabelText('draft'))
+    await user.type(screen.getByLabelText('draft'), 'Own hello edited')
+    await user.click(screen.getByRole('button', { name: 'send message' }))
+
+    await waitFor(() => {
+      expect(apiMocks.mockEditMessage).toHaveBeenCalledWith(
+        DEFAULT_WS_URL,
+        'access-token',
+        'own-1',
+        'Own hello edited',
+      )
+      expect(screen.getByLabelText('draft')).toHaveValue('new draft')
     })
   })
 

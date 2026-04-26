@@ -16,6 +16,7 @@ interface ChatSummaryResponse {
   chatId: number
   username: string
   type?: ChatType
+  creatorUserId?: string | null
   firstName?: string | null
   lastName?: string | null
   profileUrl?: string | null
@@ -36,6 +37,7 @@ interface MessageRecordResponse {
   senderUserId: string
   text: string
   timestamp: string
+  updatedAt?: string | null
 }
 
 function normalizeChatSummary(chat: ChatSummaryResponse): ChatSummary {
@@ -43,6 +45,9 @@ function normalizeChatSummary(chat: ChatSummaryResponse): ChatSummary {
     chatId: String(chat.chatId),
     username: chat.username,
     type: chat.type ?? 'DIRECT',
+    ...(typeof chat.creatorUserId !== 'undefined'
+      ? { creatorUserId: chat.creatorUserId }
+      : {}),
     firstName: chat.firstName ?? null,
     lastName: chat.lastName ?? null,
     profileUrl: chat.profileUrl ?? null,
@@ -172,6 +177,51 @@ export async function deleteMessage(
   }
 
   await parseJsonResponse<never>(response, 'Delete message failed.')
+}
+
+export async function editMessage(
+  serverUrl: string,
+  accessToken: string,
+  messageId: string,
+  text: string,
+): Promise<MessageRecord> {
+  const response = await fetch(
+    buildUrl(serverUrl, `/messages/${encodeURIComponent(messageId)}`),
+    {
+      method: 'PUT',
+      headers: buildJsonHeaders(accessToken, {
+        contentType: 'application/json',
+      }),
+      body: JSON.stringify({ text }),
+    },
+  )
+
+  const payload = await parseJsonResponse<MessageRecordResponse>(
+    response,
+    'Edit message failed.',
+  )
+
+  return normalizeMessageRecord(payload)
+}
+
+export async function deleteChat(
+  serverUrl: string,
+  accessToken: string,
+  chatId: string,
+): Promise<void> {
+  const response = await fetch(
+    buildUrl(serverUrl, `/chats/${encodeURIComponent(chatId)}`),
+    {
+      method: 'DELETE',
+      headers: buildJsonHeaders(accessToken),
+    },
+  )
+
+  if (response.ok) {
+    return
+  }
+
+  await parseJsonResponse<never>(response, 'Delete chat failed.')
 }
 
 export async function fetchUsers(serverUrl: string, accessToken: string): Promise<UserPresence[]> {

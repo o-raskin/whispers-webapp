@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ChatSidebar } from './ChatSidebar'
 
@@ -17,6 +17,7 @@ describe('ChatSidebar', () => {
         onNewChatUserIdChange={vi.fn()}
         onCreateDirectChat={vi.fn()}
         onCreatePrivateChat={vi.fn()}
+        onDeleteChat={vi.fn()}
         onSelectChat={vi.fn()}
         onDisconnect={vi.fn()}
       />,
@@ -53,6 +54,7 @@ describe('ChatSidebar', () => {
         onNewChatUserIdChange={vi.fn()}
         onCreateDirectChat={vi.fn()}
         onCreatePrivateChat={vi.fn()}
+        onDeleteChat={vi.fn()}
         onSelectChat={vi.fn()}
         onDisconnect={vi.fn()}
       />,
@@ -102,6 +104,7 @@ describe('ChatSidebar', () => {
     const onNewChatUserIdChange = vi.fn()
     const onCreateDirectChat = vi.fn()
     const onCreatePrivateChat = vi.fn()
+    const onDeleteChat = vi.fn()
     const onSelectChat = vi.fn()
     const onDisconnect = vi.fn()
 
@@ -143,6 +146,7 @@ describe('ChatSidebar', () => {
         onNewChatUserIdChange={onNewChatUserIdChange}
         onCreateDirectChat={onCreateDirectChat}
         onCreatePrivateChat={onCreatePrivateChat}
+        onDeleteChat={onDeleteChat}
         onSelectChat={onSelectChat}
         onDisconnect={onDisconnect}
       />,
@@ -182,5 +186,93 @@ describe('ChatSidebar', () => {
       'src',
       'https://example.com/alice.png',
     )
+  })
+
+  test('opens a chat action menu after a long press and requests deletion', () => {
+    vi.useFakeTimers()
+    const onDeleteChat = vi.fn()
+    const onSelectChat = vi.fn()
+
+    render(
+      <ChatSidebar
+        currentUser={null}
+        currentUserId="alice"
+        chats={[
+          {
+            chatId: 'chat-1',
+            username: 'bob',
+            type: 'DIRECT',
+            firstName: 'Bob',
+            lastName: 'Example',
+          },
+        ]}
+        isPrivateChatAvailable={true}
+        selectedChatId={null}
+        users={{}}
+        status="connected"
+        newChatUserId=""
+        onNewChatUserIdChange={vi.fn()}
+        onCreateDirectChat={vi.fn()}
+        onCreatePrivateChat={vi.fn()}
+        onDeleteChat={onDeleteChat}
+        onSelectChat={onSelectChat}
+        onDisconnect={vi.fn()}
+      />,
+    )
+
+    const chatButton = screen.getByRole('button', { name: /bob example/i })
+    fireEvent.pointerDown(chatButton, { button: 0 })
+    act(() => {
+      vi.advanceTimersByTime(700)
+    })
+    fireEvent.click(chatButton)
+
+    expect(screen.getByRole('menu', { name: 'Bob Example actions' })).toBeInTheDocument()
+    expect(onSelectChat).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+
+    expect(onDeleteChat).toHaveBeenCalledWith('chat-1')
+    expect(screen.queryByRole('menu', { name: 'Bob Example actions' })).not.toBeInTheDocument()
+
+    vi.useRealTimers()
+  })
+
+  test('keeps group chat deletion disabled for non-creators', () => {
+    const onDeleteChat = vi.fn()
+
+    render(
+      <ChatSidebar
+        currentUser={null}
+        currentUserId="alice"
+        chats={[
+          {
+            chatId: 'group-1',
+            username: 'team-room',
+            type: 'GROUP',
+            creatorUserId: 'carol',
+          },
+        ]}
+        isPrivateChatAvailable={true}
+        selectedChatId={null}
+        users={{}}
+        status="connected"
+        newChatUserId=""
+        onNewChatUserIdChange={vi.fn()}
+        onCreateDirectChat={vi.fn()}
+        onCreatePrivateChat={vi.fn()}
+        onDeleteChat={onDeleteChat}
+        onSelectChat={vi.fn()}
+        onDisconnect={vi.fn()}
+      />,
+    )
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /team-room/i }))
+
+    const deleteItem = screen.getByRole('menuitem', { name: 'Delete' })
+    expect(deleteItem).toBeDisabled()
+
+    fireEvent.click(deleteItem)
+    expect(onDeleteChat).not.toHaveBeenCalled()
   })
 })

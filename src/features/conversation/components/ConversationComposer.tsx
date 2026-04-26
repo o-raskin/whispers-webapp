@@ -7,6 +7,10 @@ import './conversation-composer.css'
 interface ConversationComposerProps {
   connectionStatus: ConnectionStatus
   desktopEmojiPicker: ReactNode
+  editingMessage: {
+    messageId: string
+    text: string
+  } | null
   isComposerFocused: boolean
   isDrafting: boolean
   isEmojiPickerOpen: boolean
@@ -19,6 +23,7 @@ interface ConversationComposerProps {
   textareaRef: RefObject<HTMLTextAreaElement | null>
   thread: ChatThread | null
   onBlur: () => void
+  onCancelMessageEdit: () => void
   onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void
   onFocus: () => void
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void
@@ -29,6 +34,7 @@ interface ConversationComposerProps {
 export function ConversationComposer({
   connectionStatus,
   desktopEmojiPicker,
+  editingMessage,
   isComposerFocused,
   isDrafting,
   isEmojiPickerOpen,
@@ -38,6 +44,7 @@ export function ConversationComposer({
   textareaRef,
   thread,
   onBlur,
+  onCancelMessageEdit,
   onChange,
   onFocus,
   onKeyDown,
@@ -55,6 +62,8 @@ export function ConversationComposer({
   const isComposerDisabled = !thread || connectionStatus !== 'connected' || isPrivateComposerLocked
   const composerPlaceholder = !thread
     ? 'Choose a conversation to start typing'
+    : editingMessage
+      ? 'Edit your message'
     : isPrivateChat
       ? privateChatAccessState === 'ready'
         ? `Send a private message to ${thread.participant}`
@@ -64,6 +73,8 @@ export function ConversationComposer({
       : `Send a message to ${thread.participant}`
   const composerMeta = !thread
     ? 'Channel idle'
+    : editingMessage
+      ? 'Editing message'
     : isPrivateChat
       ? privateChatAccessState === 'ready'
         ? 'End-to-end encrypted in this browser'
@@ -90,6 +101,31 @@ export function ConversationComposer({
         transition={panelTransition}
       />
       <div className="composer">
+        <AnimatePresence initial={false}>
+          {editingMessage ? (
+            <motion.div
+              key={editingMessage.messageId}
+              className="composer-edit-target"
+              initial={{ opacity: 0, y: 8, scale: 0.98, filter: 'blur(8px)' }}
+              animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+              exit={{ opacity: 0, y: 6, scale: 0.98, filter: 'blur(8px)' }}
+              transition={panelTransition}
+            >
+              <div className="composer-edit-target-copy">
+                <span className="composer-edit-target-label">Editing</span>
+                <span className="composer-edit-target-text">{editingMessage.text}</span>
+              </div>
+              <button
+                className="composer-edit-target-cancel"
+                type="button"
+                aria-label="Cancel message editing"
+                onClick={onCancelMessageEdit}
+              >
+                ×
+              </button>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
         <div className="composer-input-row">
           <div className="composer-field-shell">
             <textarea

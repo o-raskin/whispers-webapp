@@ -19,6 +19,7 @@ export function toChatMessage(
     senderUserId: message.senderUserId,
     text: message.text,
     timestamp: message.timestamp,
+    ...(typeof message.updatedAt !== 'undefined' ? { updatedAt: message.updatedAt } : {}),
     direction:
       message.senderUserId === currentUserId
         ? ('sent' as const)

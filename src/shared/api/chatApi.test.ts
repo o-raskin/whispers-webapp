@@ -1,7 +1,9 @@
 import {
   buildWebSocketUrl,
   createChat,
+  deleteChat,
   deleteMessage,
+  editMessage,
   fetchChats,
   fetchMessages,
   fetchUserProfile,
@@ -127,6 +129,7 @@ describe('chatApi', () => {
         senderUserId: 'bob',
         text: 'Hi',
         timestamp: '2026-04-12T10:30:00Z',
+        updatedAt: '2026-04-12T10:32:00Z',
       },
     ]
     const messages: MessageRecord[] = [
@@ -136,6 +139,7 @@ describe('chatApi', () => {
         senderUserId: 'bob',
         text: 'Hi',
         timestamp: '2026-04-12T10:30:00Z',
+        updatedAt: '2026-04-12T10:32:00Z',
       },
     ]
 
@@ -169,6 +173,66 @@ describe('chatApi', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'https://chat.example.com/messages/987',
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer access-token',
+        },
+      }),
+    )
+  })
+
+  test('edits a message by backend id', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        chatId: 123,
+        messageId: 987,
+        senderUserId: 'alice',
+        text: 'Updated hello',
+        timestamp: '2026-04-12T10:35:00Z',
+        updatedAt: '2026-04-12T10:36:00Z',
+      }),
+    })
+
+    await expect(
+      editMessage('wss://chat.example.com/ws/user', 'access-token', '987', 'Updated hello'),
+    ).resolves.toEqual({
+      chatId: '123',
+      messageId: '987',
+      senderUserId: 'alice',
+      text: 'Updated hello',
+      timestamp: '2026-04-12T10:35:00Z',
+      updatedAt: '2026-04-12T10:36:00Z',
+    })
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://chat.example.com/messages/987',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer access-token',
+          'Content-Type': 'application/json',
+        },
+        body: '{"text":"Updated hello"}',
+      }),
+    )
+  })
+
+  test('deletes a chat by backend id', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue(''),
+    })
+
+    await expect(
+      deleteChat('wss://chat.example.com/ws/user', 'access-token', '123'),
+    ).resolves.toBeUndefined()
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://chat.example.com/chats/123',
       expect.objectContaining({
         method: 'DELETE',
         headers: {

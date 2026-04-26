@@ -130,6 +130,74 @@ export function syncChatAfterMessageRemoval(
   )
 }
 
+export function editMessageInThread(
+  currentThreads: Record<string, ChatThread>,
+  editedMessage: ChatMessage,
+) {
+  const existingThread = currentThreads[editedMessage.chatId]
+
+  if (!existingThread) {
+    return currentThreads
+  }
+
+  let didEditMessage = false
+  const messages = existingThread.messages.map((message) => {
+    if (!editedMessage.messageId || message.messageId !== editedMessage.messageId) {
+      return message
+    }
+
+    didEditMessage = true
+    return {
+      ...message,
+      direction: editedMessage.direction,
+      senderUserId: editedMessage.senderUserId,
+      text: editedMessage.text,
+      timestamp: editedMessage.timestamp,
+      updatedAt: editedMessage.updatedAt,
+    }
+  })
+
+  if (!didEditMessage) {
+    return currentThreads
+  }
+
+  return {
+    ...currentThreads,
+    [editedMessage.chatId]: {
+      ...existingThread,
+      messages,
+    },
+  }
+}
+
+export function syncChatAfterMessageEdit(
+  currentChats: ChatSummary[],
+  editedMessage: ChatMessage,
+  currentThreads: Record<string, ChatThread>,
+) {
+  const existingThread = currentThreads[editedMessage.chatId]
+
+  if (!existingThread) {
+    return currentChats
+  }
+
+  const latestMessage = existingThread.messages.at(-1)
+
+  if (latestMessage?.messageId !== editedMessage.messageId) {
+    return currentChats
+  }
+
+  return currentChats.map((chat) =>
+    chat.chatId === editedMessage.chatId
+      ? {
+          ...chat,
+          preview: editedMessage.text,
+          lastMessageTimestamp: editedMessage.timestamp,
+        }
+      : chat,
+  )
+}
+
 export function mergeFetchedChats(
   currentChats: ChatSummary[],
   incomingChats: ChatSummary[],
@@ -206,6 +274,24 @@ export function clearChatUnreadCount(
   return currentChats.map((chat) =>
     chat.chatId === chatId ? { ...chat, unreadCount: 0 } : chat,
   )
+}
+
+export function removeChatFromList(
+  currentChats: ChatSummary[],
+  chatId: string,
+) {
+  return currentChats.filter((chat) => chat.chatId !== chatId)
+}
+
+export function canDeleteChat(chat: ChatSummary, currentUserId: string) {
+  if ((chat.type ?? 'DIRECT') !== 'GROUP') {
+    return true
+  }
+
+  const creatorUserId = chat.creatorUserId?.trim().toLowerCase()
+  const normalizedCurrentUserId = currentUserId.trim().toLowerCase()
+
+  return Boolean(creatorUserId && normalizedCurrentUserId && creatorUserId === normalizedCurrentUserId)
 }
 
 export function applyIncomingMessageToChats(

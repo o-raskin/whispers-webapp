@@ -36,6 +36,7 @@ interface ConversationHistoryProps {
   isMobileLayout: boolean
   onHistoryAnimationComplete: () => void
   onDeleteMessage?: (messageId: string) => void
+  onEditMessage?: (message: { chatId: string; messageId: string; text: string }) => void
   onScrollToLatest: (behavior?: ScrollBehavior) => void
   participantProfile: ParticipantProfile | null
   showHistoryLoadingState: boolean
@@ -47,8 +48,10 @@ interface ConversationHistoryProps {
 }
 
 interface MessageActionMenuState {
+  chatId: string
   left: number
   messageId: string
+  text: string
   top: number
 }
 
@@ -69,6 +72,7 @@ export function ConversationHistory({
   isMobileLayout,
   onHistoryAnimationComplete,
   onDeleteMessage,
+  onEditMessage,
   onScrollToLatest,
   participantProfile,
   showHistoryLoadingState,
@@ -93,28 +97,34 @@ export function ConversationHistory({
   const closeMessageActionMenu = useCallback(() => {
     setMessageActionMenu(null)
   }, [])
-  const isMessageDeletionAvailable = useCallback((message: ChatMessage) => (
-    Boolean(onDeleteMessage && message.messageId && message.senderUserId === currentUserId)
-  ), [currentUserId, onDeleteMessage])
+  const isMessageActionAvailable = useCallback((message: ChatMessage) => (
+    Boolean(
+      message.messageId &&
+      message.senderUserId === currentUserId &&
+      (onDeleteMessage || onEditMessage),
+    )
+  ), [currentUserId, onDeleteMessage, onEditMessage])
   const openMessageActionMenu = useCallback((
     message: ChatMessage,
     event: Pick<ReactPointerEvent<HTMLElement>, 'clientX' | 'clientY'>,
   ) => {
-    if (!isMessageDeletionAvailable(message) || !message.messageId) {
+    if (!isMessageActionAvailable(message) || !message.messageId) {
       return
     }
 
     setMessageActionMenu({
+      chatId: message.chatId,
       left: event.clientX,
       messageId: message.messageId,
+      text: message.text,
       top: event.clientY,
     })
-  }, [isMessageDeletionAvailable])
+  }, [isMessageActionAvailable])
   const handleMessagePointerDown = useCallback((
     message: ChatMessage,
     event: ReactPointerEvent<HTMLElement>,
   ) => {
-    if (!isMessageDeletionAvailable(message) || event.button !== 0) {
+    if (!isMessageActionAvailable(message) || event.button !== 0) {
       return
     }
 
@@ -132,7 +142,7 @@ export function ConversationHistory({
   }, [
     clearLongPressTimer,
     closeMessageActionMenu,
-    isMessageDeletionAvailable,
+    isMessageActionAvailable,
     openMessageActionMenu,
   ])
   const handleMessagePointerMove = useCallback((event: ReactPointerEvent<HTMLElement>) => {
@@ -201,17 +211,36 @@ export function ConversationHistory({
               transition={panelTransition}
               onPointerDown={(event) => event.stopPropagation()}
             >
-              <button
-                className="message-action-menu-item delete"
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onDeleteMessage?.(messageActionMenu.messageId)
-                  closeMessageActionMenu()
-                }}
-              >
-                Delete
-              </button>
+              {onEditMessage ? (
+                <button
+                  className="message-action-menu-item edit"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onEditMessage({
+                      chatId: messageActionMenu.chatId,
+                      messageId: messageActionMenu.messageId,
+                      text: messageActionMenu.text,
+                    })
+                    closeMessageActionMenu()
+                  }}
+                >
+                  Edit
+                </button>
+              ) : null}
+              {onDeleteMessage ? (
+                <button
+                  className="message-action-menu-item delete"
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onDeleteMessage(messageActionMenu.messageId)
+                    closeMessageActionMenu()
+                  }}
+                >
+                  Delete
+                </button>
+              ) : null}
             </motion.div>
           </AnimatePresence>,
           document.body,
@@ -302,7 +331,7 @@ export function ConversationHistory({
                           <motion.article
                             key={message.id}
                             className={`message ${message.direction} ${showMeta ? '' : 'stacked'} ${privateEncryptionStateClass}`}
-                            data-message-actionable={isMessageDeletionAvailable(message) ? 'true' : undefined}
+                            data-message-actionable={isMessageActionAvailable(message) ? 'true' : undefined}
                             layout
                             variants={itemReveal}
                             initial={isMobileLayout ? false : 'hidden'}
@@ -316,7 +345,7 @@ export function ConversationHistory({
                             }}
                             transition={panelTransition}
                             onContextMenu={(event) => {
-                              if (!isMessageDeletionAvailable(message)) {
+                              if (!isMessageActionAvailable(message)) {
                                 return
                               }
 
@@ -344,10 +373,31 @@ export function ConversationHistory({
                                 ) : null}
                               </div>
                             ) : null}
-                            <span className="message-body">{message.text}</span>
+                            <motion.span
+                              key={`${message.id}-${message.text}`}
+                              className="message-body"
+                              initial={{ opacity: 0, y: 4, filter: 'blur(4px)' }}
+                              animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                              transition={panelTransition}
+                            >
+                              {message.text}
+                            </motion.span>
                             {message.direction !== 'system' ? (
-                              <span className="message-timestamp">
-                                {formatTimestamp(message.timestamp)}
+                              <span className="message-timestamp-row">
+                                {message.updatedAt ? (
+                                  <motion.span
+                                    key={`${message.id}-edited-${message.updatedAt}`}
+                                    className="message-edited-label"
+                                    initial={{ opacity: 0, y: 3 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={panelTransition}
+                                  >
+                                    edited
+                                  </motion.span>
+                                ) : null}
+                                <span className="message-timestamp">
+                                  {formatTimestamp(message.timestamp)}
+                                </span>
                               </span>
                             ) : null}
                           </motion.article>

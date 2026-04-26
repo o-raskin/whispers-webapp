@@ -6,7 +6,9 @@ import { logoutCurrentSession } from '../shared/api/authApi'
 import { ApiError } from '../shared/api/apiClient'
 import {
   createChat,
+  deleteChat,
   deleteMessage,
+  editMessage,
   fetchChats,
   fetchMessages,
   fetchUserProfile,
@@ -41,14 +43,18 @@ import { deriveAppViewModel } from './utils/appViewModel'
 import { appendLog } from './utils/eventLog'
 import {
   applyIncomingMessageToChats,
+  canDeleteChat,
   clearChatUnreadCount,
   createSystemMessage,
+  editMessageInThread,
   filterVisibleMessages,
   hydrateFetchedChats,
   mergeFetchedChats,
+  removeChatFromList,
   removeMessageFromThread,
   setChatPreview,
   setChatTimestamp,
+  syncChatAfterMessageEdit,
   syncChatAfterMessageRemoval,
   upsertThread,
 } from './utils/chatRuntime'
@@ -62,6 +68,13 @@ import { countUnreadMessages, loadReadMarkers, saveReadMarkers } from './utils/r
 
 interface LoadHistoryOptions {
   allowPrivateKeySetup?: boolean
+}
+
+interface EditingMessageState {
+  chatId: string
+  messageId: string
+  previousDraft: string
+  text: string
 }
 
 export function App() {
@@ -86,6 +99,7 @@ export function App() {
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null)
   const [newChatUserId, setNewChatUserId] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
+  const [editingMessage, setEditingMessage] = useState<EditingMessageState | null>(null)
   const [isBootstrapping, setIsBootstrapping] = useState(false)
   const [isHistoryLoading, setIsHistoryLoading] = useState(false)
   const [remoteTypingByChatId, setRemoteTypingByChatId] = useState<Record<string, string>>({})
@@ -110,7 +124,6 @@ export function App() {
     authStatus,
     authUser,
     clearAuthState,
-    currentUserLabel,
     handleStartProviderLogin,
     providerRedirectEnabled,
     selectedProviderLabel,
@@ -241,6 +254,53 @@ export function App() {
     setChats((current) => clearChatUnreadCount(current, chatId))
   }, [])
 
+  const removeDeletedChat = useCallback((chatId: string) => {
+    setChats((current) => removeChatFromList(current, chatId))
+    setSelectedChatId((current) => (current === chatId ? null : current))
+
+    setThreads((current) => {
+      if (!current[chatId]) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
+
+    setPrivateChatSessions((current) => {
+      if (!current[chatId]) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
+
+    setRemoteTypingByChatId((current) => {
+      if (!current[chatId]) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
+
+    setReadMarkers((current) => {
+      if (!current[chatId]) {
+        return current
+      }
+
+      const next = { ...current }
+      delete next[chatId]
+      return next
+    })
+
+    setEditingMessage((current) => (current?.chatId === chatId ? null : current))
+  }, [])
+
   const resetRealtimeState = useCallback((
     cleanupReason: string,
     options?: { log?: boolean },
@@ -256,6 +316,7 @@ export function App() {
     setSelectedChatId(null)
     setReadMarkers({})
     setMessageDraft('')
+    setEditingMessage(null)
     stopLocalTypingRef.current(undefined, { log: false })
 
     if (options?.log ?? true) {
@@ -655,6 +716,14 @@ export function App() {
     upsertMessages,
   ])
 
+  const handleMessageEditEvent = useCallback((payload: MessageRecord) => {
+    const editedMessage = toChatMessage(payload, userIdRef.current)
+
+    setThreads((current) => editMessageInThread(current, editedMessage))
+    setChats((current) => syncChatAfterMessageEdit(current, editedMessage, threadsRef.current))
+    appendEventLog(`Message edited: ${editedMessage.messageId ?? editedMessage.id}`)
+  }, [appendEventLog])
+
   const handleMessageDeleteEvent = useCallback((event: { chatId: string; messageId: string }) => {
     const existingThread = threadsRef.current[event.chatId]
 
@@ -676,8 +745,12 @@ export function App() {
       event.chatId,
       remainingMessages,
     ))
+    if (editingMessage?.messageId === event.messageId) {
+      setMessageDraft(editingMessage.previousDraft)
+      setEditingMessage(null)
+    }
     appendEventLog(`Message deleted: ${event.messageId}`)
-  }, [appendEventLog])
+  }, [appendEventLog, editingMessage])
 
   const {
     acceptCall,
@@ -703,6 +776,15 @@ export function App() {
     userIdRef,
   })
 
+  const handleChatDeleteEvent = useCallback((event: { chatId: string }) => {
+    if (selectedChatIdRef.current === event.chatId) {
+      cleanupCallSession('chat-deleted')
+    }
+
+    removeDeletedChat(event.chatId)
+    appendEventLog(`Chat deleted: ${event.chatId}`)
+  }, [appendEventLog, cleanupCallSession, removeDeletedChat])
+
   const { connectAuthenticatedSocket } = useRealtimeConnection({
     appendEventLog,
     appendSystemMessage,
@@ -712,7 +794,9 @@ export function App() {
     handleCallSignalMessage,
     handleIncomingDirectSocketMessage,
     handleIncomingPrivateSocketMessage,
+    handleChatDeleteEvent,
     handleMessageDeleteEvent,
+    handleMessageEditEvent,
     messageDraft,
     onSocketClose: () => {
       cleanupCallSession('socket-closed')
@@ -958,13 +1042,85 @@ export function App() {
     setupPrivateChatBrowser,
   ])
 
+  const handleStartMessageEdit = useCallback((message: {
+    chatId: string
+    messageId: string
+    text: string
+  }) => {
+    const existingMessage = threadsRef.current[message.chatId]?.messages.find(
+      (item) => item.messageId === message.messageId,
+    )
+
+    if (!existingMessage || existingMessage.senderUserId !== userIdRef.current) {
+      appendEventLog('Only your own messages can be edited.')
+      return
+    }
+
+    setEditingMessage((current) => ({
+      chatId: message.chatId,
+      messageId: message.messageId,
+      previousDraft: current?.previousDraft ?? messageDraft,
+      text: message.text,
+    }))
+    setMessageDraft(message.text)
+  }, [appendEventLog, messageDraft])
+
+  const handleCancelMessageEdit = useCallback(() => {
+    if (!editingMessage) {
+      return
+    }
+
+    setMessageDraft(editingMessage.previousDraft)
+    setEditingMessage(null)
+  }, [editingMessage])
+
   const handleSendMessage = useCallback(async () => {
+    const trimmedDraft = messageDraft.trim()
+
+    if (editingMessage) {
+      if (!authSession) {
+        appendEventLog('Sign in first to edit messages.')
+        return
+      }
+
+      if (!selectedThread || selectedThread.chatId !== editingMessage.chatId) {
+        appendEventLog('Open the edited chat before saving message changes.')
+        return
+      }
+
+      if (!trimmedDraft) {
+        appendEventLog('Enter an updated message before saving.')
+        return
+      }
+
+      try {
+        await editMessage(
+          serverUrl,
+          authSession.accessToken,
+          editingMessage.messageId,
+          trimmedDraft,
+        )
+        appendEventLog(`Edit requested for message ${editingMessage.messageId}.`)
+        setMessageDraft(editingMessage.previousDraft)
+        setEditingMessage(null)
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          handleUnauthorizedAccess(error.message)
+          return
+        }
+
+        const message = error instanceof Error ? error.message : 'Edit message failed.'
+        appendEventLog(`Edit message failed: ${message}`)
+        appendSystemMessage(selectedChatIdRef.current, `Edit message failed: ${message}`)
+      }
+
+      return
+    }
+
     if (socketRef.current?.readyState !== WebSocket.OPEN) {
       appendEventLog('Connect first.')
       return
     }
-
-    const trimmedDraft = messageDraft.trim()
 
     if (!selectedThread || !trimmedDraft) {
       appendEventLog('Select a chat and enter a message.')
@@ -987,9 +1143,14 @@ export function App() {
     setMessageDraft('')
   }, [
     appendEventLog,
+    appendSystemMessage,
+    authSession,
+    editingMessage,
+    handleUnauthorizedAccess,
     messageDraft,
     sendPrivateMessage,
     selectedThread,
+    serverUrl,
     stopLocalTypingRef,
   ])
 
@@ -1011,6 +1172,47 @@ export function App() {
       const message = error instanceof Error ? error.message : 'Delete message failed.'
       appendEventLog(`Delete message failed: ${message}`)
       appendSystemMessage(selectedChatIdRef.current, `Delete message failed: ${message}`)
+    }
+  }, [
+    appendEventLog,
+    appendSystemMessage,
+    authSession,
+    handleUnauthorizedAccess,
+    serverUrl,
+  ])
+
+  const handleDeleteChat = useCallback(async (chatId: string) => {
+    if (!authSession) {
+      appendEventLog('Sign in first to delete chats.')
+      return
+    }
+
+    const chat = chatsRef.current.find((entry) => entry.chatId === chatId)
+
+    if (!chat) {
+      appendEventLog(`Cannot delete missing chat ${chatId}.`)
+      return
+    }
+
+    if (!canDeleteChat(chat, userIdRef.current)) {
+      const message = 'Only the group creator can delete this chat.'
+      appendEventLog(message)
+      appendSystemMessage(selectedChatIdRef.current, message)
+      return
+    }
+
+    try {
+      await deleteChat(serverUrl, authSession.accessToken, chatId)
+      appendEventLog(`Delete requested for chat ${chatId}.`)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorizedAccess(error.message)
+        return
+      }
+
+      const message = error instanceof Error ? error.message : 'Delete chat failed.'
+      appendEventLog(`Delete chat failed: ${message}`)
+      appendSystemMessage(selectedChatIdRef.current, `Delete chat failed: ${message}`)
     }
   }, [
     appendEventLog,
@@ -1086,16 +1288,22 @@ export function App() {
             sidebarProps={{
               chats,
               currentUser: authUser,
-              currentUserId: currentUserLabel || currentUserId,
+              currentUserId,
               isPrivateChatAvailable: privateChatFeatureSupported,
               newChatUserId,
               onCreateDirectChat: handleCreateChat,
               onCreatePrivateChat: handleCreatePrivateChat,
+              onDeleteChat: (chatId: string) => {
+                void handleDeleteChat(chatId)
+              },
               onDisconnect: () => {
                 void handleLogout()
               },
               onNewChatUserIdChange: setNewChatUserId,
-              onSelectChat: handleSelectChat,
+              onSelectChat: (chatId: string) => {
+                handleCancelMessageEdit()
+                handleSelectChat(chatId)
+              },
               selectedChatId,
               status,
               users,
@@ -1109,15 +1317,26 @@ export function App() {
               isHistoryLoading: isHistoryLoading || isBootstrapping,
               isMobileLayout,
               localCallStream,
+              editingMessage: editingMessage
+                ? {
+                    messageId: editingMessage.messageId,
+                    text: editingMessage.text,
+                  }
+                : null,
               messageDraft,
               onAcceptCall: acceptCall,
-              onBackToInbox: () => setSelectedChatId(null),
+              onBackToInbox: () => {
+                handleCancelMessageEdit()
+                setSelectedChatId(null)
+              },
               onDeclineCall: rejectIncomingCall,
               onEndCall: handleEndSelectedCall,
               onMessageDraftChange: setMessageDraft,
+              onCancelMessageEdit: handleCancelMessageEdit,
               onDeleteMessage: (messageId: string) => {
                 void handleDeleteMessage(messageId)
               },
+              onEditMessage: handleStartMessageEdit,
               onSendMessage: handleSendMessage,
               onSetUpPrivateChatBrowser: () => {
                 void handleSetupPrivateChatBrowser()

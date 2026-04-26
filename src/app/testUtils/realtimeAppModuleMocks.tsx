@@ -4,7 +4,9 @@ const apiMocks = vi.hoisted(() => ({
   ]),
   mockBuildWebSocketUrl: vi.fn((serverUrl: string) => serverUrl),
   mockCreateChat: vi.fn(),
+  mockDeleteChat: vi.fn(),
   mockDeleteMessage: vi.fn(),
+  mockEditMessage: vi.fn(),
   mockFetchChats: vi.fn(),
   mockFetchMessages: vi.fn(),
   mockFetchUserProfile: vi.fn(
@@ -55,7 +57,9 @@ vi.mock('../../shared/api/chatApi', () => ({
   buildWebSocketProtocols: apiMocks.mockBuildWebSocketProtocols,
   buildWebSocketUrl: apiMocks.mockBuildWebSocketUrl,
   createChat: apiMocks.mockCreateChat,
+  deleteChat: apiMocks.mockDeleteChat,
   deleteMessage: apiMocks.mockDeleteMessage,
+  editMessage: apiMocks.mockEditMessage,
   fetchChats: apiMocks.mockFetchChats,
   fetchMessages: apiMocks.mockFetchMessages,
   fetchUserProfile: apiMocks.mockFetchUserProfile,
@@ -149,6 +153,7 @@ vi.mock('../../features/chat-list/components/ChatSidebar', () => ({
     onNewChatUserIdChange,
     onCreateDirectChat,
     onCreatePrivateChat,
+    onDeleteChat,
     onSelectChat,
   }: {
     chats: Array<{ chatId: string; username: string; unreadCount?: number; type?: string }>
@@ -159,6 +164,7 @@ vi.mock('../../features/chat-list/components/ChatSidebar', () => ({
     onNewChatUserIdChange: (value: string) => void
     onCreateDirectChat: () => void
     onCreatePrivateChat: () => void
+    onDeleteChat: (chatId: string) => void
     onSelectChat: (chatId: string) => void
   }) => (
     <div data-testid="sidebar">
@@ -177,13 +183,17 @@ vi.mock('../../features/chat-list/components/ChatSidebar', () => ({
         create private chat
       </button>
       {chats.map((chat) => (
-        <button
-          key={chat.chatId}
-          type="button"
-          onClick={() => onSelectChat(chat.chatId)}
-        >
-          {`chat:${chat.username}:${chat.unreadCount ?? 0}`}
-        </button>
+        <div key={chat.chatId}>
+          <button
+            type="button"
+            onClick={() => onSelectChat(chat.chatId)}
+          >
+            {`chat:${chat.username}:${chat.unreadCount ?? 0}`}
+          </button>
+          <button type="button" onClick={() => onDeleteChat(chat.chatId)}>
+            {`delete-chat:${chat.username}`}
+          </button>
+        </div>
       ))}
     </div>
   ),
@@ -205,6 +215,8 @@ vi.mock('../../features/conversation/components/ConversationPanel', () => ({
     messageDraft,
     onMessageDraftChange,
     onBackToInbox,
+    onCancelMessageEdit,
+    onEditMessage,
     onSendMessage,
     onStartCall,
     participantProfile,
@@ -224,6 +236,8 @@ vi.mock('../../features/conversation/components/ConversationPanel', () => ({
     onAcceptCall: () => void
     onDeclineCall: () => void
     onEndCall: () => void
+    onEditMessage: (message: { chatId: string; messageId: string; text: string }) => void
+    onCancelMessageEdit: () => void
     messageDraft: string
     onMessageDraftChange: (value: string) => void
     onBackToInbox: () => void
@@ -289,6 +303,15 @@ vi.mock('../../features/conversation/components/ConversationPanel', () => ({
         </button>
         <button type="button" onClick={onEndCall}>
           end audio call
+        </button>
+        <button
+          type="button"
+          onClick={() => onEditMessage({ chatId: 'chat-1', messageId: 'own-1', text: 'Own hello' })}
+        >
+          edit own message
+        </button>
+        <button type="button" onClick={onCancelMessageEdit}>
+          cancel message edit
         </button>
         <button type="button" onClick={onSendMessage}>
           send message

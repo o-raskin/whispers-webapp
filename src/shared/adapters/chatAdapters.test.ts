@@ -7,6 +7,7 @@ describe('chatAdapters', () => {
     senderUserId: 'alice',
     text: 'Hello there',
     timestamp: '2026-04-12T10:30:00Z',
+    updatedAt: '2026-04-12T10:35:00Z',
   }
 
   test('builds a stable message id from message fields', () => {
@@ -26,6 +27,7 @@ describe('chatAdapters', () => {
       senderUserId: 'alice',
       text: 'Hello there',
       timestamp: '2026-04-12T10:30:00Z',
+      updatedAt: '2026-04-12T10:35:00Z',
       direction: 'sent',
     })
   })

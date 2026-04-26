@@ -27,8 +27,10 @@ import { isCallSignalText, parseCallSignalText } from '../../shared/utils/callSi
 import { normalizeSocketPrivateMessage } from '../utils/privateChatRuntime'
 import {
   hasTypedEventShape,
+  isChatDeleteEvent,
   isMessageRecord,
   isMessageDeleteEvent,
+  isMessageEditEvent,
   isPrivateMessageRecord,
   isPresenceEvent,
   isTypingEvent,
@@ -62,7 +64,9 @@ interface UseRealtimeConnectionArgs {
     message: PrivateMessageRecord,
     accessToken: string,
   ) => Promise<void> | void
+  handleChatDeleteEvent: (event: { chatId: string }) => void
   handleMessageDeleteEvent: (event: { chatId: string; messageId: string }) => void
+  handleMessageEditEvent: (message: MessageRecord) => void
   messageDraft: string
   onSocketClose: () => void
   onSocketOpen: (accessToken: string, username: string) => void
@@ -99,7 +103,9 @@ export function useRealtimeConnection({
   handleCallSignalMessage,
   handleIncomingDirectSocketMessage,
   handleIncomingPrivateSocketMessage,
+  handleChatDeleteEvent,
   handleMessageDeleteEvent,
+  handleMessageEditEvent,
   messageDraft,
   onSocketClose,
   onSocketOpen,
@@ -232,11 +238,23 @@ export function useRealtimeConnection({
 
       appendEventLog(`Received: ${raw}`)
 
+      if (isChatDeleteEvent(payload)) {
+        handleChatDeleteEvent({
+          chatId: String(payload.chatId),
+        })
+        return
+      }
+
       if (isMessageDeleteEvent(payload)) {
         handleMessageDeleteEvent({
           chatId: String(payload.chatId),
           messageId: String(payload.messageId),
         })
+        return
+      }
+
+      if (isMessageEditEvent(payload)) {
+        handleMessageEditEvent(normalizeSocketMessage(payload.message))
         return
       }
 
@@ -324,9 +342,11 @@ export function useRealtimeConnection({
     clearRemoteTyping,
     clearTypingRefreshTimer,
     handleCallSignalMessage,
+    handleChatDeleteEvent,
     handleIncomingDirectSocketMessage,
     handleIncomingPrivateSocketMessage,
     handleMessageDeleteEvent,
+    handleMessageEditEvent,
     onSocketClose,
     onSocketOpen,
     selectedChatIdRef,

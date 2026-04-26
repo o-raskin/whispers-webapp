@@ -8,7 +8,9 @@ import {
 } from './utils/readMarkers'
 import {
   hasTypedEventShape,
+  isChatDeleteEvent,
   isMessageDeleteEvent,
+  isMessageEditEvent,
   isMessageRecord,
   isPresenceEvent,
   isTypingEvent,
@@ -43,6 +45,18 @@ describe('App helpers', () => {
       chatId: 1,
       messageId: 987,
     })).toBe(true)
+    expect(isMessageEditEvent({
+      type: 'MESSAGE_EDIT',
+      message: {
+        chatId: 1,
+        messageId: 987,
+        senderUserId: 'alice',
+        text: 'Updated hello',
+        timestamp: '2026-04-12T10:35:00Z',
+        updatedAt: '2026-04-12T10:36:00Z',
+      },
+    })).toBe(true)
+    expect(isChatDeleteEvent({ type: 'CHAT_DELETE', chatId: 1 })).toBe(true)
     expect(hasTypedEventShape({ type: 'MESSAGE' })).toBe(true)
     expect(
       isMessageRecord({

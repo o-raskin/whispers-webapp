@@ -25,6 +25,7 @@ describe('ConversationPanel', () => {
         direction: 'sent',
         text: 'Hi Bob',
         timestamp: '2026-04-12T10:01:00',
+        updatedAt: '2026-04-12T10:03:00',
       },
     ],
   }
@@ -40,12 +41,15 @@ describe('ConversationPanel', () => {
     chatType = null,
     isHistoryLoading = false,
     isMobileLayout = false,
+    editingMessage = null,
     messageDraft = '',
     onAcceptCall = vi.fn(),
     onBackToInbox = vi.fn(),
     onDeclineCall = vi.fn(),
     onEndCall = vi.fn(),
     onDeleteMessage = vi.fn(),
+    onEditMessage = vi.fn(),
+    onCancelMessageEdit = vi.fn(),
     onMessageDraftChange = vi.fn(),
     onSendMessage = vi.fn(),
     onSetUpPrivateChatBrowser = vi.fn(),
@@ -59,12 +63,15 @@ describe('ConversationPanel', () => {
     chatType?: 'PRIVATE' | null
     isHistoryLoading?: boolean
     isMobileLayout?: boolean
+    editingMessage?: { messageId: string; text: string } | null
     messageDraft?: string
     onAcceptCall?: () => void
     onBackToInbox?: () => void
     onDeclineCall?: () => void
     onEndCall?: () => void
     onDeleteMessage?: (messageId: string) => void
+    onEditMessage?: (message: { chatId: string; messageId: string; text: string }) => void
+    onCancelMessageEdit?: () => void
     onMessageDraftChange?: (value: string) => void
     onSendMessage?: () => void
     onSetUpPrivateChatBrowser?: () => void
@@ -102,6 +109,7 @@ describe('ConversationPanel', () => {
         callPhase={callPhase}
         localCallStream={null}
         remoteCallStream={null}
+        editingMessage={editingMessage}
         messageDraft={messageDraft}
         onMessageDraftChange={onMessageDraftChange}
         onBackToInbox={onBackToInbox}
@@ -109,6 +117,8 @@ describe('ConversationPanel', () => {
         onDeclineCall={onDeclineCall}
         onEndCall={onEndCall}
         onDeleteMessage={onDeleteMessage}
+        onEditMessage={onEditMessage}
+        onCancelMessageEdit={onCancelMessageEdit}
         onSendMessage={onSendMessage}
         onSetUpPrivateChatBrowser={onSetUpPrivateChatBrowser}
         onStartCall={onStartCall}
@@ -173,6 +183,7 @@ describe('ConversationPanel', () => {
     expect(screen.getByText('You')).toBeInTheDocument()
     expect(screen.getByText('Hello Alice')).toBeInTheDocument()
     expect(screen.getByText('Hi Bob')).toBeInTheDocument()
+    expect(screen.getByText('edited')).toBeInTheDocument()
 
     await userEventApi.click(screen.getByRole('button', { name: 'Back to inbox' }))
     await userEventApi.click(screen.getByRole('button', { name: 'Start audio call' }))
@@ -224,6 +235,7 @@ describe('ConversationPanel', () => {
         callPhase="active"
         localCallStream={null}
         remoteCallStream={null}
+        editingMessage={null}
         messageDraft=""
         onMessageDraftChange={vi.fn()}
         onBackToInbox={vi.fn()}
@@ -231,6 +243,8 @@ describe('ConversationPanel', () => {
         onDeclineCall={vi.fn()}
         onEndCall={onEndCall}
         onDeleteMessage={vi.fn()}
+        onEditMessage={vi.fn()}
+        onCancelMessageEdit={vi.fn()}
         onSendMessage={vi.fn()}
         onSetUpPrivateChatBrowser={vi.fn()}
         onStartCall={vi.fn()}
@@ -345,6 +359,63 @@ describe('ConversationPanel', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  test('opens edit mode from the message action menu', () => {
+    vi.useFakeTimers()
+    const onEditMessage = vi.fn()
+
+    try {
+      renderConversationPanel({
+        onEditMessage,
+      })
+
+      const messageBubble = screen.getByText('Hi Bob').closest('article')
+
+      expect(messageBubble).not.toBeNull()
+
+      fireEvent.pointerDown(messageBubble!, {
+        button: 0,
+        clientX: 120,
+        clientY: 220,
+      })
+
+      act(() => {
+        vi.advanceTimersByTime(700)
+      })
+
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Edit' }))
+
+      expect(onEditMessage).toHaveBeenCalledWith({
+        chatId: 'chat-1',
+        messageId: '202',
+        text: 'Hi Bob',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('shows the editing target above the composer and allows cancelling edit mode', async () => {
+    const userEventApi = userEvent.setup()
+    const onCancelMessageEdit = vi.fn()
+
+    renderConversationPanel({
+      editingMessage: {
+        messageId: '202',
+        text: 'Hi Bob',
+      },
+      messageDraft: 'Hi Bob',
+      onCancelMessageEdit,
+    })
+
+    expect(screen.getByText('Editing')).toBeInTheDocument()
+    expect(screen.getAllByText('Hi Bob').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByPlaceholderText('Edit your message')).toBeInTheDocument()
+
+    await userEventApi.click(screen.getByRole('button', { name: 'Cancel message editing' }))
+
+    expect(onCancelMessageEdit).toHaveBeenCalledTimes(1)
   })
 
   test('does not offer delete actions for other participant messages', () => {

@@ -20,6 +20,7 @@ export interface ChatMessage {
   direction: 'sent' | 'received' | 'system'
   text: string
   timestamp: string
+  updatedAt?: string | null
   encryption?: {
     mode: 'PRIVATE'
     state: 'decrypted' | 'error' | 'missing-key'
@@ -33,6 +34,7 @@ export interface MessageRecord {
   senderUserId: string
   text: string
   timestamp: string
+  updatedAt?: string | null
 }
 
 export interface EncryptedPrivateMessagePayload {
@@ -60,6 +62,7 @@ export interface ChatSummary {
   chatId: string
   username: string
   type?: ChatType
+  creatorUserId?: string | null
   firstName?: string | null
   lastName?: string | null
   profileUrl?: string | null
@@ -210,12 +213,24 @@ export interface MessageDeleteEvent {
   messageId: string
 }
 
+export interface MessageEditEvent {
+  type: 'MESSAGE_EDIT'
+  message: MessageRecord
+}
+
+export interface ChatDeleteEvent {
+  type: 'CHAT_DELETE'
+  chatId: string
+}
+
 export type WebSocketIncomingEvent =
   | MessageRecord
   | PrivateMessageRecord
   | PresenceEvent
   | TypingEvent
   | MessageDeleteEvent
+  | MessageEditEvent
+  | ChatDeleteEvent
 
 export interface ErrorResponse {
   error: string

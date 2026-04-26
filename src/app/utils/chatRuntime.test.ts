@@ -2,15 +2,19 @@ import { buildCallSignalText } from '../../shared/utils/callSignals'
 import type { ChatMessage, ChatSummary } from '../../shared/types/chat'
 import {
   applyIncomingMessageToChats,
+  canDeleteChat,
   clearChatUnreadCount,
   createSystemMessage,
+  editMessageInThread,
   filterVisibleMessages,
   hydrateFetchedChats,
   mergeFetchedChats,
   mergeThreadMessages,
+  removeChatFromList,
   removeMessageFromThread,
   setChatPreview,
   setChatTimestamp,
+  syncChatAfterMessageEdit,
   syncChatAfterMessageRemoval,
   upsertThread,
 } from './chatRuntime'
@@ -23,6 +27,7 @@ function createChatMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
     direction: overrides.direction ?? 'received',
     text: overrides.text ?? 'Hello',
     timestamp: overrides.timestamp ?? '2026-04-12T10:00:00Z',
+    ...(typeof overrides.updatedAt !== 'undefined' ? { updatedAt: overrides.updatedAt } : {}),
     ...(overrides.messageId ? { messageId: overrides.messageId } : {}),
     ...(overrides.encryption ? { encryption: overrides.encryption } : {}),
   }
@@ -186,6 +191,62 @@ describe('chatRuntime', () => {
     ])
   })
 
+  test('edits messages in place and refreshes the latest chat preview', () => {
+    const currentThreads = {
+      'chat-1': {
+        chatId: 'chat-1',
+        participant: 'bob',
+        messages: [
+          createChatMessage({
+            id: 'message-987',
+            messageId: '987',
+            text: 'Older note',
+            timestamp: '2026-04-12T10:00:00Z',
+          }),
+          createChatMessage({
+            id: 'message-988',
+            messageId: '988',
+            text: 'Original latest',
+            timestamp: '2026-04-12T10:05:00Z',
+          }),
+        ],
+      },
+    }
+    const editedMessage = createChatMessage({
+      id: 'message-988',
+      messageId: '988',
+      senderUserId: 'alice',
+      direction: 'sent',
+      text: 'Edited latest',
+      timestamp: '2026-04-12T10:05:00Z',
+      updatedAt: '2026-04-12T10:06:00Z',
+    })
+    const nextThreads = editMessageInThread(currentThreads, editedMessage)
+
+    expect(nextThreads['chat-1'].messages.at(-1)).toEqual(editedMessage)
+    expect(
+      syncChatAfterMessageEdit(
+        [
+          {
+            chatId: 'chat-1',
+            username: 'bob',
+            preview: 'Original latest',
+            lastMessageTimestamp: '2026-04-12T10:05:00Z',
+          },
+        ],
+        editedMessage,
+        currentThreads,
+      ),
+    ).toEqual([
+      {
+        chatId: 'chat-1',
+        username: 'bob',
+        preview: 'Edited latest',
+        lastMessageTimestamp: '2026-04-12T10:05:00Z',
+      },
+    ])
+  })
+
   test('preserves visible chat previews when fetched chat summaries contain hidden call signals', () => {
     const currentChats: ChatSummary[] = [
       {
@@ -343,5 +404,19 @@ describe('chatRuntime', () => {
     expect(systemMessage.chatId).toBe('chat-1')
     expect(systemMessage.direction).toBe('system')
     expect(systemMessage.text).toBe('Connection lost')
+  })
+
+  test('removes deleted chats and gates group deletion to the creator', () => {
+    const chats: ChatSummary[] = [
+      { chatId: 'chat-1', username: 'bob', type: 'DIRECT' },
+      { chatId: 'group-1', username: 'team', type: 'GROUP', creatorUserId: 'alice' },
+    ]
+
+    expect(removeChatFromList(chats, 'chat-1')).toEqual([
+      { chatId: 'group-1', username: 'team', type: 'GROUP', creatorUserId: 'alice' },
+    ])
+    expect(canDeleteChat(chats[0], 'alice')).toBe(true)
+    expect(canDeleteChat(chats[1], 'alice')).toBe(true)
+    expect(canDeleteChat(chats[1], 'bob')).toBe(false)
   })
 })

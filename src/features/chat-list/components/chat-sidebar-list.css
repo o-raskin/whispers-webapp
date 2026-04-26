@@ -57,6 +57,10 @@
   gap: 0.75rem;
 }
 
+.chat-item-action-root {
+  position: relative;
+}
+
 .chat-item {
   position: relative;
   display: block;
@@ -109,6 +113,13 @@ button.chat-item {
   background:
     linear-gradient(180deg, rgba(123, 169, 255, 0.16), rgba(255, 255, 255, 0.04)),
     linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.028));
+}
+
+.chat-item.has-action-menu {
+  border-color: rgba(255, 124, 124, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 22px 42px rgba(75, 18, 31, 0.25);
 }
 
 .chat-item.private {
@@ -283,6 +294,47 @@ button.chat-item {
     0 10px 20px rgba(40, 54, 120, 0.18);
 }
 
+.chat-action-menu {
+  position: absolute;
+  right: 0.75rem;
+  top: 0.65rem;
+  z-index: 5;
+  min-width: 8.25rem;
+  padding: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgba(31, 39, 60, 0.96), rgba(16, 23, 38, 0.96)),
+    radial-gradient(circle at top right, rgba(255, 124, 124, 0.14), transparent 62%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 24px 48px rgba(5, 10, 20, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.chat-action-menu-item {
+  width: 100%;
+  min-height: 2.35rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1;
+  text-align: left;
+}
+
+.chat-action-menu-item.danger {
+  color: #ffd1d1;
+}
+
+.chat-action-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .empty-panel {
   padding: 28px;
   text-align: center;
@@ -327,6 +379,10 @@ button.chat-item {
     transform: translateX(110%);
     opacity: 1;
   }
+
+  .chat-action-menu-item:not(:disabled):hover {
+    background: rgba(255, 124, 124, 0.12);
+  }
 }
 
 @media (max-width: 760px) {
@@ -346,6 +402,11 @@ button.chat-item {
   .chat-item {
     min-height: 0;
     padding: 0.875rem;
+  }
+
+  .chat-action-menu {
+    right: 0.55rem;
+    top: 0.55rem;
   }
 
   .chat-item-top {

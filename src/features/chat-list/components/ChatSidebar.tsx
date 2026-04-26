@@ -24,6 +24,7 @@ export interface ChatSidebarProps {
   onNewChatUserIdChange: (value: string) => void
   onCreateDirectChat: () => void
   onCreatePrivateChat: () => void
+  onDeleteChat: (chatId: string) => void
   onSelectChat: (chatId: string) => void
   onDisconnect: () => void
 }
@@ -40,6 +41,7 @@ export function ChatSidebar({
   onNewChatUserIdChange,
   onCreateDirectChat,
   onCreatePrivateChat,
+  onDeleteChat,
   onSelectChat,
   onDisconnect,
 }: ChatSidebarProps) {
@@ -78,6 +80,8 @@ export function ChatSidebar({
         sidebarScrollRef={sidebarScrollRef}
         status={status}
         users={users}
+        currentUserId={currentUserId}
+        onDeleteChat={onDeleteChat}
         onSelectChat={onSelectChat}
         onScroll={updateSidebarFadeState}
       />

@@ -213,9 +213,25 @@
   min-width: 0;
 }
 
+.message-timestamp-row {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: -1px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.message-edited-label {
+  color: rgba(231, 239, 255, 0.42);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .message-timestamp {
   justify-self: end;
-  margin-top: -1px;
   color: rgba(231, 239, 255, 0.46);
   font-size: 0.64rem;
   font-weight: 600;
@@ -339,6 +355,16 @@
 
 .message-action-menu-item.delete {
   color: #ffd3d3;
+}
+
+.message-action-menu-item.edit {
+  color: #dbe8ff;
+}
+
+.message-action-menu-item.edit:hover,
+.message-action-menu-item.edit:focus-visible {
+  background: rgba(123, 169, 255, 0.14);
+  color: #ffffff;
 }
 
 .message-action-menu-item.delete:hover,

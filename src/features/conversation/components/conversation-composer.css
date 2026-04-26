@@ -40,6 +40,72 @@
   overflow: visible;
 }
 
+.composer-edit-target {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.625rem;
+  padding: 0.625rem 0.7rem 0.625rem 0.8rem;
+  border: 1px solid rgba(163, 190, 255, 0.16);
+  border-radius: 1rem 1rem 0.875rem 0.875rem;
+  background:
+    linear-gradient(180deg, rgba(123, 169, 255, 0.11), rgba(255, 255, 255, 0.045)),
+    radial-gradient(circle at top right, rgba(255, 214, 138, 0.12), transparent 58%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 28px rgba(5, 10, 18, 0.16);
+}
+
+.composer-edit-target-copy {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+}
+
+.composer-edit-target-label {
+  color: rgba(231, 239, 255, 0.62);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.composer-edit-target-text {
+  min-width: 0;
+  color: rgba(249, 251, 255, 0.92);
+  font-size: 0.88rem;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-edit-target-cancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.055);
+  color: rgba(249, 251, 255, 0.82);
+  font-size: 1.15rem;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.composer-edit-target-cancel:hover,
+.composer-edit-target-cancel:focus-visible {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+}
+
 .composer-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

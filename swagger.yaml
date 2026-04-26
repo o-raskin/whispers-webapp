@@ -135,6 +135,8 @@ paths:
 
         Server text frames may send:
         - `MessageRecord` as JSON
+        - `ChatDeleteEvent` as JSON after a successful HTTP chat deletion
+        - `MessageEditEvent` as JSON after a successful HTTP message edit
         - `MessageDeleteEvent` as JSON after a successful HTTP message deletion
         - `PrivateMessageView` as JSON
         - `PresenceEvent` as JSON
@@ -204,6 +206,28 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /chats/{chatId}:
+    delete:
+      summary: Delete a DIRECT or PRIVATE chat the authenticated user participates in
+      description: Successful deletion removes the chat and all related messages in one database transaction and emits a `ChatDeleteEvent` WebSocket frame to both participants.
+      parameters:
+        - name: chatId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 123
+      responses:
+        '200':
+          description: Chat deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -368,6 +392,40 @@ paths:
           $ref: '#/components/responses/InternalServerError'
 
   /messages/{messageId}:
+    put:
+      summary: Edit a plaintext DIRECT chat message owned by the authenticated user
+      description: Successful edits update the stored text and emit a `MessageEditEvent` WebSocket frame to both DIRECT chat participants.
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          example: 987
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditMessageRequest'
+      responses:
+        '200':
+          description: Updated message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     delete:
       summary: Delete a plaintext DIRECT chat message owned by the authenticated user
       description: Successful deletion also emits a `MessageDeleteEvent` WebSocket frame to both DIRECT chat participants.
@@ -624,6 +682,15 @@ components:
           type: string
           example: spki
 
+    EditMessageRequest:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          example: hello again
+
     PrivateChatKeyStatus:
       type: string
       enum: [ACTIVE, REVOKED]
@@ -735,6 +802,7 @@ components:
         - senderUserId
         - text
         - timestamp
+        - updatedAt
       properties:
         messageId:
           type: integer
@@ -754,6 +822,11 @@ components:
           type: string
           description: Server-side message timestamp
           example: '2026-04-10T12:34:56Z'
+        updatedAt:
+          type: string
+          nullable: true
+          description: Server-side edit timestamp, present only after `PUT /messages/{messageId}` succeeds
+          example: '2026-04-10T12:40:00Z'
 
     MessageDeleteEvent:
       type: object
@@ -773,6 +846,32 @@ components:
           type: integer
           format: int64
           example: 987
+
+    MessageEditEvent:
+      type: object
+      required:
+        - type
+        - message
+      properties:
+        type:
+          type: string
+          example: MESSAGE_EDIT
+        message:
+          $ref: '#/components/schemas/MessageRecord'
+
+    ChatDeleteEvent:
+      type: object
+      required:
+        - type
+        - chatId
+      properties:
+        type:
+          type: string
+          example: CHAT_DELETE
+        chatId:
+          type: integer
+          format: int64
+          example: 123
 
     PrivateMessageView:
       type: object

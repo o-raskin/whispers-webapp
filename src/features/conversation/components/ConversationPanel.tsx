@@ -31,6 +31,11 @@ interface PrivateConversationState {
   notice: string | null
 }
 
+interface EditingMessageState {
+  messageId: string
+  text: string
+}
+
 export interface ConversationPanelProps {
   chatType: ChatType | null
   participantProfile?: Pick<
@@ -50,6 +55,7 @@ export interface ConversationPanelProps {
   callPhase: CallPhase
   localCallStream: MediaStream | null
   remoteCallStream: MediaStream | null
+  editingMessage: EditingMessageState | null
   messageDraft: string
   onMessageDraftChange: (value: string) => void
   onBackToInbox: () => void
@@ -57,6 +63,8 @@ export interface ConversationPanelProps {
   onDeclineCall: () => void
   onEndCall: () => void
   onDeleteMessage: (messageId: string) => void
+  onEditMessage: (message: { chatId: string; messageId: string; text: string }) => void
+  onCancelMessageEdit: () => void
   onSendMessage: () => void
   onSetUpPrivateChatBrowser: () => void
   onStartCall: () => void
@@ -78,6 +86,7 @@ export function ConversationPanel({
   callPhase,
   localCallStream,
   remoteCallStream,
+  editingMessage,
   messageDraft,
   onMessageDraftChange,
   onBackToInbox,
@@ -85,6 +94,8 @@ export function ConversationPanel({
   onDeclineCall,
   onEndCall,
   onDeleteMessage,
+  onEditMessage,
+  onCancelMessageEdit,
   onSendMessage,
   onSetUpPrivateChatBrowser,
   onStartCall,
@@ -181,6 +192,17 @@ export function ConversationPanel({
     }
   }, [remoteCallStream])
 
+  useEffect(() => {
+    if (!editingMessage) {
+      return
+    }
+
+    window.requestAnimationFrame(() => {
+      textareaRef.current?.focus()
+      textareaRef.current?.setSelectionRange(messageDraft.length, messageDraft.length)
+    })
+  }, [editingMessage, messageDraft.length, textareaRef])
+
   const emojiPicker = (
     <ConversationEmojiPicker
       isMobileLayout={isMobileLayout}
@@ -234,6 +256,7 @@ export function ConversationPanel({
         }}
         onScrollToLatest={scrollHistoryToLatest}
         onDeleteMessage={chatType === 'PRIVATE' ? undefined : onDeleteMessage}
+        onEditMessage={chatType === 'PRIVATE' ? undefined : onEditMessage}
         participantProfile={participantProfile}
         showHistoryLoadingState={showHistoryLoadingState}
         thread={thread}
@@ -248,6 +271,7 @@ export function ConversationPanel({
         isEmojiPickerOpen={isEmojiPickerOpen}
         isPrivateChat={isPrivateChat}
         messageDraft={messageDraft}
+        editingMessage={editingMessage}
         privateChatState={privateChatState}
         textareaRef={textareaRef}
         thread={thread}
@@ -255,6 +279,7 @@ export function ConversationPanel({
         onChange={handleChange}
         onFocus={() => setIsComposerFocused(true)}
         onKeyDown={handleKeyDown}
+        onCancelMessageEdit={onCancelMessageEdit}
         onSubmit={onSendMessage}
         onToggleEmojiPicker={toggleEmojiPicker}
       />

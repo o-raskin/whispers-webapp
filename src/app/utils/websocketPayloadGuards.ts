@@ -1,5 +1,7 @@
 import type {
+  ChatDeleteEvent,
   MessageDeleteEvent,
+  MessageEditEvent,
   MessageRecord,
   PrivateMessageRecord,
   PresenceEvent,
@@ -17,6 +19,14 @@ export type WebSocketMessageDeletePayload = Omit<
 > & {
   chatId: string | number
   messageId: string | number
+}
+
+export type WebSocketMessageEditPayload = Omit<MessageEditEvent, 'message'> & {
+  message: WebSocketMessageRecordPayload
+}
+
+export type WebSocketChatDeletePayload = Omit<ChatDeleteEvent, 'chatId'> & {
+  chatId: string | number
 }
 
 export type WebSocketPrivateMessagePayload = Omit<
@@ -70,6 +80,39 @@ export function isMessageDeleteEvent(
   )
 }
 
+export function isMessageEditEvent(
+  payload: unknown,
+): payload is WebSocketMessageEditPayload {
+  if (typeof payload !== 'object' || payload === null) {
+    return false
+  }
+
+  const record = payload as {
+    message?: unknown
+    type?: unknown
+  }
+
+  return record.type === 'MESSAGE_EDIT' && isMessageRecord(record.message)
+}
+
+export function isChatDeleteEvent(
+  payload: unknown,
+): payload is WebSocketChatDeletePayload {
+  if (typeof payload !== 'object' || payload === null) {
+    return false
+  }
+
+  const record = payload as {
+    chatId?: unknown
+    type?: unknown
+  }
+
+  return (
+    record.type === 'CHAT_DELETE' &&
+    (typeof record.chatId === 'string' || typeof record.chatId === 'number')
+  )
+}
+
 export function hasTypedEventShape(
   payload: unknown,
 ): payload is Record<'type', unknown> {
@@ -87,6 +130,7 @@ export function isMessageRecord(payload: unknown): payload is WebSocketMessageRe
     senderUserId?: unknown
     text?: unknown
     timestamp?: unknown
+    updatedAt?: unknown
   }
 
   return (
@@ -98,7 +142,12 @@ export function isMessageRecord(payload: unknown): payload is WebSocketMessageRe
     ) &&
     typeof record.senderUserId === 'string' &&
     typeof record.text === 'string' &&
-    typeof record.timestamp === 'string'
+    typeof record.timestamp === 'string' &&
+    (
+      typeof record.updatedAt === 'undefined' ||
+      typeof record.updatedAt === 'string' ||
+      record.updatedAt === null
+    )
   )
 }
 
